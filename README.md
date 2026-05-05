@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # doc_ingestor
 
 A self-hosted crawler that turns documentation websites and linked PDFs into clean, chunked Markdown — ready to drop into any LLM context window, RAG pipeline, or NotebookLM source.
@@ -160,3 +161,6 @@ Requires `OLLAMA_API_KEY` in `.env` or the environment.
 | `structuring.py` | Markdown rendering |
 | `cleaning.py` | Text normalisation |
 | `models.py` | Shared TypedDict definitions |
+=======
+# doc_ingestor
+>>>>>>> 00aab5d4788a6c25a396f23b460ef7ceea218ec5
