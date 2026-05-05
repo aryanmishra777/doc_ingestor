@@ -1,0 +1,15 @@
+# Python artifacts
+__pycache__/
+*.py[cod]
+
+# Virtual environments
+venv/
+.venv/
+
+# Local secrets
+.env
+ollama_api_key.txt
+
+# Markdown chunks
+*_chunks/
+*_chunks/*.md
