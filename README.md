@@ -160,6 +160,4 @@ Requires `OLLAMA_API_KEY` in `.env` or the environment.
 | `structuring.py` | Markdown rendering |
 | `cleaning.py` | Text normalisation |
 | `models.py` | Shared TypedDict definitions |
-=======
-# doc_ingestor
->>>>>>> 00aab5d4788a6c25a396f23b460ef7ceea218ec5
+
