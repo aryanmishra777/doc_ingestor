@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # doc_ingestor
 
 A self-hosted crawler that turns documentation websites and linked PDFs into clean, chunked Markdown — ready to drop into any LLM context window, RAG pipeline, or NotebookLM source.
