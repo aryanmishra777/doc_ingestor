@@ -61,6 +61,12 @@ def main() -> None:
         help=f"Maximum pages per Markdown output file; default is {DEFAULT_CHUNK_PAGES}",
     )
     parser.add_argument("--output", "-o", type=Path, default=None, help="Output Markdown file")
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=4,
+        help="Number of concurrent page fetches (default: 4)",
+    )
     args = parser.parse_args()
 
     log_runtime_config(env_loaded, llm_enabled=args.seed_llm)
@@ -75,6 +81,8 @@ def main() -> None:
     )
     log_seed_discovery_config(seed_diag, llm_model=args.seed_llm_model)
     seed_mode = resolve_seed_mode(args.seed_mode, seed_urls)
+    if seed_mode == "single":
+        seed_urls = [start_url]
 
     if args.output:
         if seed_mode == "separate" and len(seed_urls) > 1:
@@ -84,14 +92,15 @@ def main() -> None:
                 max_pages=args.max_pages,
                 max_depth=args.max_depth,
                 chunk_pages=args.chunk_pages,
+                max_workers=args.workers,
             )
         else:
-            records = collect_records_for_seeds(seed_urls, max_pages=args.max_pages, max_depth=args.max_depth)
+            records = collect_records_for_seeds(seed_urls, max_pages=args.max_pages, max_depth=args.max_depth, max_workers=args.workers)
             write_markdown_outputs(records, args.output, chunk_pages=args.chunk_pages)
     else:
         if seed_mode == "separate" and len(seed_urls) > 1:
             print("Note: --seed-mode=separate requires --output; falling back to merged output.", file=sys.stderr)
-        records = collect_records_for_seeds(seed_urls, max_pages=args.max_pages, max_depth=args.max_depth)
+        records = collect_records_for_seeds(seed_urls, max_pages=args.max_pages, max_depth=args.max_depth, max_workers=args.workers)
         print(structure_records_to_markdown(records))
 
 
@@ -218,13 +227,14 @@ def collect_records_for_seeds(
     seed_urls: list[str],
     max_pages: int | None,
     max_depth: int | None,
+    max_workers: int = 4,
 ) -> list[DocPageRecord]:
     all_records: list[DocPageRecord] = []
     seen_urls: set[str] = set()
     seen_canonical_urls: set[str] = set()
 
     for seed_url in seed_urls:
-        records = _collect_seed_records(seed_url, max_pages=max_pages, max_depth=max_depth)
+        records = _collect_seed_records(seed_url, max_pages=max_pages, max_depth=max_depth, max_workers=max_workers)
         if records is None:
             continue
         for record in records:
@@ -265,10 +275,11 @@ def write_outputs_per_seed(
     max_pages: int | None,
     max_depth: int | None,
     chunk_pages: int,
+    max_workers: int = 4,
 ) -> None:
     total = len(seed_urls)
     for index, seed_url in enumerate(seed_urls, start=1):
-        records = _collect_seed_records(seed_url, max_pages=max_pages, max_depth=max_depth)
+        records = _collect_seed_records(seed_url, max_pages=max_pages, max_depth=max_depth, max_workers=max_workers)
         if records is None:
             continue
         seed_output = _build_seed_output_path(output, seed_url, index=index, total=total)
@@ -279,9 +290,10 @@ def _collect_seed_records(
     seed_url: str,
     max_pages: int | None,
     max_depth: int | None,
+    max_workers: int = 4,
 ) -> list[DocPageRecord] | None:
     try:
-        records, _ = collect_records(seed_url, max_pages=max_pages, max_depth=max_depth)
+        records, _ = collect_records(seed_url, max_pages=max_pages, max_depth=max_depth, max_workers=max_workers)
         return records
     except KeyboardInterrupt:
         raise

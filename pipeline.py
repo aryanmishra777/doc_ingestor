@@ -2,21 +2,23 @@ from __future__ import annotations
 
 import hashlib
 import sys
+import threading
 from collections.abc import Callable
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait as futures_wait
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlparse, urlunparse
 
 try:
     from .cleaning import clean_record
-    from .extraction import extract_page
+    from .extraction import extract_page, extract_page_in_browser
     from .models import DocPageRecord
     from .pdf_extraction import extract_pdf
     from .structuring import derive_title, structure_records_to_markdown
     from .traversal import LinkTraversalFrontier
 except ImportError:
     from cleaning import clean_record
-    from extraction import extract_page
+    from extraction import extract_page, extract_page_in_browser
     from models import DocPageRecord
     from pdf_extraction import extract_pdf
     from structuring import derive_title, structure_records_to_markdown
@@ -48,8 +50,9 @@ def run_pipeline(
     max_pages: int | None = None,
     max_depth: int | None = None,
     logger: Callable[[str], None] | None = None,
+    max_workers: int = 4,
 ) -> str:
-    records, _ = collect_records(start_url, max_pages=max_pages, max_depth=max_depth, logger=logger)
+    records, _ = collect_records(start_url, max_pages=max_pages, max_depth=max_depth, logger=logger, max_workers=max_workers)
     return structure_records_to_markdown(records)
 
 
@@ -58,8 +61,9 @@ def run_pipeline_result(
     max_pages: int | None = None,
     max_depth: int | None = None,
     logger: Callable[[str], None] | None = None,
+    max_workers: int = 4,
 ) -> PipelineResult:
-    records, stats = collect_records(start_url, max_pages=max_pages, max_depth=max_depth, logger=logger)
+    records, stats = collect_records(start_url, max_pages=max_pages, max_depth=max_depth, logger=logger, max_workers=max_workers)
     return PipelineResult(
         markdown=structure_records_to_markdown(records),
         records=records,
@@ -72,17 +76,13 @@ def collect_records(
     max_pages: int | None = None,
     max_depth: int | None = None,
     logger: Callable[[str], None] | None = None,
+    max_workers: int = 4,
 ) -> tuple[list[DocPageRecord], PipelineStats]:
     log = logger or _stderr_logger
-
     _log_crawl_limits(log, max_pages, max_depth)
 
-    frontier = LinkTraversalFrontier(
-        start_url,
-        max_pages=max_pages,
-        max_depth=max_depth,
-    )
-    records = []
+    frontier = LinkTraversalFrontier(start_url, max_pages=max_pages, max_depth=max_depth)
+    records: list[DocPageRecord] = []
     failed_pages = 0
     max_observed_depth = 0
     depth_cap_reached = False
@@ -91,32 +91,96 @@ def collect_records(
     seen_canonical_urls: set[str] = set()
     seen_content_hashes: set[str] = set()
 
-    while True:
-        url, depth = frontier.get_next_url()
-        if url is None:
-            break
+    # Each worker thread gets its own Playwright browser to avoid shared state issues.
+    _tls = threading.local()
+    _browsers: list[tuple] = []
+    _browsers_lock = threading.Lock()
 
-        (
-            failed_pages,
-            depth_cap_reached,
-            max_observed_depth,
-            skipped_by_canonical,
-            skipped_by_content_hash,
-        ) = _crawl_frontier_item(
-            frontier=frontier,
-            url=url,
-            depth=depth,
-            max_depth=max_depth,
-            log=log,
-            records=records,
-            seen_canonical_urls=seen_canonical_urls,
-            seen_content_hashes=seen_content_hashes,
-            failed_pages=failed_pages,
-            depth_cap_reached=depth_cap_reached,
-            max_observed_depth=max_observed_depth,
-            skipped_by_canonical=skipped_by_canonical,
-            skipped_by_content_hash=skipped_by_content_hash,
-        )
+    def _get_thread_browser():
+        if not hasattr(_tls, "browser"):
+            try:
+                from playwright.sync_api import sync_playwright
+                _tls.pw = sync_playwright().start()
+                _tls.browser = _tls.pw.chromium.launch(headless=True)
+                with _browsers_lock:
+                    _browsers.append((_tls.pw, _tls.browser))
+            except Exception:
+                _tls.browser = None
+        return _tls.browser
+
+    def _concurrent_fetch(url: str, depth: int, order_index: int) -> list[DocPageRecord]:
+        if _is_pdf_url(url):
+            return extract_pdf(url, depth=depth, order_index=order_index)
+        browser = _get_thread_browser()
+        if browser is None:
+            return [extract_page(url, depth=depth, order_index=order_index)]
+        return [extract_page_in_browser(browser, url, depth=depth, order_index=order_index)]
+
+    executor = ThreadPoolExecutor(max_workers=max_workers)
+    try:
+        in_flight: dict = {}
+
+        while True:
+            # Keep the worker pool full.
+            while len(in_flight) < max_workers:
+                url, depth = frontier.get_next_url()
+                if url is None:
+                    break
+                order_index = len(records) + len(in_flight)
+                future = executor.submit(_concurrent_fetch, url, depth, order_index)
+                in_flight[future] = (url, depth)
+
+            if not in_flight:
+                break
+
+            done, _ = futures_wait(list(in_flight.keys()), return_when=FIRST_COMPLETED)
+
+            for future in done:
+                url, depth = in_flight.pop(future)
+                try:
+                    raw_records = future.result()
+                except Exception as exc:
+                    failed_pages += 1
+                    log(f"Failed: {url}: {exc}")
+                    continue
+
+                log(f"Analysis: fetching page {len(records) + 1} at depth {depth}: {url}")
+
+                if _has_record_errors(raw_records):
+                    failed_pages += 1
+
+                if _update_frontier_with_links(frontier, url, depth, raw_records, max_depth):
+                    depth_cap_reached = True
+
+                for raw_record in raw_records:
+                    accepted, skipped_by_canonical, skipped_by_content_hash = _process_raw_record(
+                        raw_record, url, log, records,
+                        seen_canonical_urls, seen_content_hashes,
+                        skipped_by_canonical, skipped_by_content_hash,
+                    )
+                    if accepted:
+                        max_observed_depth = max(max_observed_depth, depth)
+                        if len(records) % PROGRESS_LOG_INTERVAL == 0:
+                            log(
+                                "Analysis progress: "
+                                f"pages={len(records)}, current_depth={depth}, queued={len(frontier.queue)}"
+                            )
+    except KeyboardInterrupt:
+        log("Interrupted: cancelling in-flight fetches...")
+        executor.shutdown(wait=False, cancel_futures=True)
+        raise
+    finally:
+        executor.shutdown(wait=False)
+        with _browsers_lock:
+            for pw, browser in _browsers:
+                try:
+                    browser.close()
+                except Exception:
+                    pass
+                try:
+                    pw.stop()
+                except Exception:
+                    pass
 
     truncated = bool(frontier.queue)
     log(
@@ -148,60 +212,6 @@ def collect_records(
     return records, stats
 
 
-def _crawl_frontier_item(
-    frontier: LinkTraversalFrontier,
-    url: str,
-    depth: int,
-    max_depth: int | None,
-    log: Callable[[str], None],
-    records: list[DocPageRecord],
-    seen_canonical_urls: set[str],
-    seen_content_hashes: set[str],
-    failed_pages: int,
-    depth_cap_reached: bool,
-    max_observed_depth: int,
-    skipped_by_canonical: int,
-    skipped_by_content_hash: int,
-) -> tuple[int, bool, int, int, int]:
-    try:
-        log(f"Analysis: fetching page {len(records) + 1} at depth {depth}: {url}")
-        raw_records = _fetch_raw_records(url, depth, len(records))
-
-        if _has_record_errors(raw_records):
-            failed_pages += 1
-
-        if _update_frontier_with_links(frontier, url, depth, raw_records, max_depth):
-            depth_cap_reached = True
-
-        for raw_record in raw_records:
-            accepted, skipped_by_canonical, skipped_by_content_hash = _process_raw_record(
-                raw_record,
-                url,
-                log,
-                records,
-                seen_canonical_urls,
-                seen_content_hashes,
-                skipped_by_canonical,
-                skipped_by_content_hash,
-            )
-            if accepted:
-                max_observed_depth = max(max_observed_depth, depth)
-                if len(records) % PROGRESS_LOG_INTERVAL == 0:
-                    log(
-                        "Analysis progress: "
-                        f"pages={len(records)}, current_depth={depth}, queued={len(frontier.queue)}"
-                    )
-    except Exception as exc:
-        failed_pages += 1
-        log(f"Failed: {url}: {exc}")
-
-    return (
-        failed_pages,
-        depth_cap_reached,
-        max_observed_depth,
-        skipped_by_canonical,
-        skipped_by_content_hash,
-    )
 
 
 def _log_crawl_limits(

@@ -992,14 +992,26 @@ def _select_live_candidates(
     if max_count <= 0:
         return []
 
-    selected: list[str] = []
-    probe_budget = min(MAX_PROBE_CANDIDATES, len(ranked_candidates))
+    from concurrent.futures import ThreadPoolExecutor, as_completed
 
-    for candidate in ranked_candidates[:probe_budget]:
-        if _is_live_doc_candidate(candidate, start_parsed):
-            selected.append(candidate)
-            if len(selected) >= max_count:
-                return selected
+    probe_budget = min(MAX_PROBE_CANDIDATES, len(ranked_candidates))
+    to_probe = ranked_candidates[:probe_budget]
+
+    # Probe all candidates concurrently; preserve ranked order in results.
+    results: dict[str, bool] = {}
+    with ThreadPoolExecutor(max_workers=min(probe_budget, 10)) as executor:
+        future_to_url = {
+            executor.submit(_is_live_doc_candidate, url, start_parsed): url
+            for url in to_probe
+        }
+        for future in as_completed(future_to_url):
+            url = future_to_url[future]
+            try:
+                results[url] = future.result()
+            except Exception:
+                results[url] = False
+
+    selected = [url for url in to_probe if results.get(url)][:max_count]
 
     if selected:
         return selected

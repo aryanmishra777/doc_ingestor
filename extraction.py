@@ -66,6 +66,27 @@ def extract_page(url: str, depth: int = 0, order_index: int = 0) -> DocPageRecor
         return _error_record(url, depth, order_index, "extractor: page extraction failed", exc)
 
 
+def extract_page_in_browser(browser, url: str, depth: int = 0, order_index: int = 0) -> DocPageRecord:
+    """Extract a page using an existing Playwright browser (new context per call, thread-safe)."""
+    try:
+        context = browser.new_context()
+        page = context.new_page()
+        try:
+            page.goto(url, wait_until="domcontentloaded", timeout=30_000)
+            try:
+                page.wait_for_load_state("networkidle", timeout=5_000)
+            except Exception:
+                pass
+            final_url = page.url or url
+            html = page.content()
+        finally:
+            context.close()
+        return extract_from_html(html, url=final_url, depth=depth, order_index=order_index)
+    except Exception as exc:
+        print(f"Failed: {url}: {exc}", file=sys.stderr)
+        return _error_record(url, depth, order_index, "extractor: page extraction failed", exc)
+
+
 def extract_from_html(
     html: str,
     url: str,
