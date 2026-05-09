@@ -1,0 +1,23 @@
+{
+  "mcpServers": {
+    "notebooklm": {
+      "command": "python",
+      "args": [
+        "C:/Users/Aryan/WINDOWS 11/IIIT HYDERABAD/6th SEM/Documentation Crawler/doc_ingestor/mcp_servers/notebooklm_server.py"
+      ],
+      "env": {
+        "NOTEBOOKLM_STORAGE_PATH": ""
+      }
+    },
+    "claude-ai": {
+      "command": "python",
+      "args": [
+        "C:/Users/Aryan/WINDOWS 11/IIIT HYDERABAD/6th SEM/Documentation Crawler/doc_ingestor/mcp_servers/claude_server.py"
+      ],
+      "env": {
+        "ANTHROPIC_API_KEY": "sk-ant-...",
+        "CLAUDE_MODEL": "claude-sonnet-4-6"
+      }
+    }
+  }
+}
