@@ -1,0 +1,173 @@
+Config: dotenv_loaded=yes, ollama_key=set, gemini_key=set, seed_provider=cloud, adaptive_provider=gemini
+Adaptive: probing for documentation API endpoints...
+Adaptive: no API endpoint detected, using standard crawler
+Adaptive: running standard crawler...
+Analysis: complete discovery enabled (no limits)
+Analysis: fetching page 1 at depth 0: https://microsoft.github.io/language-server-protocol
+Analysis: fetching page 2 at depth 1: https://microsoft.github.io/language-server-protocol/implementors/servers
+Analysis: fetching page 3 at depth 1: https://microsoft.github.io/language-server-protocol/overviews/lsp/overview
+Analysis: fetching page 4 at depth 1: https://microsoft.github.io/language-server-protocol/specifications/specification-current
+Analysis: fetching page 5 at depth 2: https://microsoft.github.io/language-server-protocol/implementors/sdks
+Analysis: fetching page 6 at depth 2: https://microsoft.github.io/language-server-protocol/overviews/lsif/overview
+Analysis: fetching page 7 at depth 2: https://microsoft.github.io/language-server-protocol/implementors/utilities
+Analysis: fetching page 8 at depth 2: https://microsoft.github.io/language-server-protocol/implementors/tools
+Analysis: fetching page 9 at depth 2: https://microsoft.github.io/language-server-protocol/specification
+Analysis: skipping duplicate canonical URL: https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/
+Failed: https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/metaModel/metaModel.ts: Page.goto: Download is starting
+Call log:
+  - navigating to "https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/metaModel/metaModel.ts", waiting until "domcontentloaded"
+
+Analysis: fetching page 9 at depth 2: https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/metaModel/metaModel.ts
+Analysis: fetching page 10 at depth 2: https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/metaModel/metaModel.schema.json
+Analysis progress: pages=10, current_depth=2, queued=0
+Analysis: fetching page 11 at depth 2: https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/metaModel/metaModel.json
+Analysis: fetching page 12 at depth 2: https://microsoft.github.io/language-server-protocol/specifications/base/0.9/specification
+Analysis: fetching page 13 at depth 2: https://microsoft.github.io/language-server-protocol/specifications/lsif/0.5.0/specification
+Analysis: fetching page 14 at depth 2: https://microsoft.github.io/language-server-protocol/specifications/lsif/0.6.0/specification
+Analysis: fetching page 15 at depth 2: https://microsoft.github.io/language-server-protocol/specifications/specification-3-16
+Analysis: fetching page 16 at depth 2: https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification
+Analysis: skipping duplicate canonical URL: https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/
+Analysis: fetching page 16 at depth 2: https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification
+Analysis: fetching page 17 at depth 3: https://microsoft.github.io/language-server-protocol/specifications/lsif/0.4.0/specification
+Failed: https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/metaModel/metaModel.ts: Page.goto: Download is starting
+Call log:
+  - navigating to "https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/metaModel/metaModel.ts", waiting until "domcontentloaded"
+
+Analysis: fetching page 18 at depth 3: https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/metaModel/metaModel.ts
+Analysis: fetching page 19 at depth 3: https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/metaModel/metaModel.schema.json
+Analysis: fetching page 20 at depth 3: https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/metaModel/metaModel.json
+Analysis progress: pages=20, current_depth=3, queued=0
+Analysis: fetching page 21 at depth 4: https://microsoft.github.io/language-server-protocol/specifications/specification-3-15
+Analysis complete: pages=21, required_depth=4, failed_pages=2, truncated_by_page_cap=False, depth_cap_reached=False, skipped_by_canonical=2, skipped_by_content_hash=0
+Adaptive: crawler produced 21 records
+Adaptive: quality � structural=0.90, density=1.00, scope=1.00, passed=False
+Adaptive: self-correcting (attempt 1/3)...
+Adaptive: no further crawler adjustments available, retrying as-is...
+Adaptive: running standard crawler...
+Analysis: complete discovery enabled (no limits)
+Analysis: fetching page 1 at depth 0: https://microsoft.github.io/language-server-protocol
+Analysis: fetching page 2 at depth 1: https://microsoft.github.io/language-server-protocol/implementors/servers
+Analysis: fetching page 3 at depth 1: https://microsoft.github.io/language-server-protocol/overviews/lsp/overview
+Analysis: fetching page 4 at depth 1: https://microsoft.github.io/language-server-protocol/specifications/specification-current
+Analysis: fetching page 5 at depth 2: https://microsoft.github.io/language-server-protocol/implementors/sdks
+Analysis: fetching page 6 at depth 2: https://microsoft.github.io/language-server-protocol/implementors/utilities
+Analysis: fetching page 7 at depth 2: https://microsoft.github.io/language-server-protocol/implementors/tools
+Analysis: fetching page 8 at depth 2: https://microsoft.github.io/language-server-protocol/overviews/lsif/overview
+Analysis: fetching page 9 at depth 2: https://microsoft.github.io/language-server-protocol/specification
+Analysis: skipping duplicate canonical URL: https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/
+Analysis: fetching page 9 at depth 2: https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/metaModel/metaModel.json
+Failed: https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/metaModel/metaModel.ts: Page.goto: Download is starting
+Call log:
+  - navigating to "https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/metaModel/metaModel.ts", waiting until "domcontentloaded"
+
+Analysis: fetching page 10 at depth 2: https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/metaModel/metaModel.ts
+Analysis progress: pages=10, current_depth=2, queued=0
+Analysis: fetching page 11 at depth 2: https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/metaModel/metaModel.schema.json
+Analysis: fetching page 12 at depth 2: https://microsoft.github.io/language-server-protocol/specifications/lsif/0.6.0/specification
+Analysis: fetching page 13 at depth 2: https://microsoft.github.io/language-server-protocol/specifications/base/0.9/specification
+Analysis: fetching page 14 at depth 2: https://microsoft.github.io/language-server-protocol/specifications/lsif/0.5.0/specification
+Analysis: fetching page 15 at depth 2: https://microsoft.github.io/language-server-protocol/specifications/specification-3-16
+Analysis: fetching page 16 at depth 2: https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification
+Analysis: skipping duplicate canonical URL: https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/
+Analysis: fetching page 16 at depth 2: https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification
+Analysis: fetching page 17 at depth 3: https://microsoft.github.io/language-server-protocol/specifications/lsif/0.4.0/specification
+Failed: https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/metaModel/metaModel.ts: Page.goto: Download is starting
+Call log:
+  - navigating to "https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/metaModel/metaModel.ts", waiting until "domcontentloaded"
+
+Analysis: fetching page 18 at depth 3: https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/metaModel/metaModel.ts
+Analysis: fetching page 19 at depth 3: https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/metaModel/metaModel.schema.json
+Analysis: fetching page 20 at depth 3: https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/metaModel/metaModel.json
+Analysis progress: pages=20, current_depth=3, queued=0
+Analysis: fetching page 21 at depth 4: https://microsoft.github.io/language-server-protocol/specifications/specification-3-15
+Analysis complete: pages=21, required_depth=4, failed_pages=2, truncated_by_page_cap=False, depth_cap_reached=False, skipped_by_canonical=2, skipped_by_content_hash=0
+Adaptive: crawler produced 21 records
+Adaptive: quality � structural=0.90, density=1.00, scope=1.00, passed=False
+Adaptive: self-correcting (attempt 2/3)...
+Adaptive: no further crawler adjustments available, retrying as-is...
+Adaptive: running standard crawler...
+Analysis: complete discovery enabled (no limits)
+Analysis: fetching page 1 at depth 0: https://microsoft.github.io/language-server-protocol
+Analysis: fetching page 2 at depth 1: https://microsoft.github.io/language-server-protocol/implementors/servers
+Analysis: fetching page 3 at depth 1: https://microsoft.github.io/language-server-protocol/overviews/lsp/overview
+Analysis: fetching page 4 at depth 1: https://microsoft.github.io/language-server-protocol/specifications/specification-current
+Analysis: fetching page 5 at depth 2: https://microsoft.github.io/language-server-protocol/implementors/sdks
+Analysis: fetching page 6 at depth 2: https://microsoft.github.io/language-server-protocol/overviews/lsif/overview
+Analysis: fetching page 7 at depth 2: https://microsoft.github.io/language-server-protocol/implementors/tools
+Analysis: fetching page 8 at depth 2: https://microsoft.github.io/language-server-protocol/implementors/utilities
+Analysis: fetching page 9 at depth 2: https://microsoft.github.io/language-server-protocol/specification
+Analysis: skipping duplicate canonical URL: https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/
+Analysis: fetching page 9 at depth 2: https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/metaModel/metaModel.schema.json
+Failed: https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/metaModel/metaModel.ts: Page.goto: Download is starting
+Call log:
+  - navigating to "https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/metaModel/metaModel.ts", waiting until "domcontentloaded"
+
+Analysis: fetching page 10 at depth 2: https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/metaModel/metaModel.ts
+Analysis progress: pages=10, current_depth=2, queued=0
+Analysis: fetching page 11 at depth 2: https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/metaModel/metaModel.json
+Analysis: fetching page 12 at depth 2: https://microsoft.github.io/language-server-protocol/specifications/base/0.9/specification
+Analysis: fetching page 13 at depth 2: https://microsoft.github.io/language-server-protocol/specifications/specification-3-16
+Analysis: fetching page 14 at depth 2: https://microsoft.github.io/language-server-protocol/specifications/lsif/0.6.0/specification
+Analysis: fetching page 15 at depth 2: https://microsoft.github.io/language-server-protocol/specifications/lsif/0.5.0/specification
+Analysis: fetching page 16 at depth 2: https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification
+Analysis: skipping duplicate canonical URL: https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/
+Analysis: fetching page 16 at depth 2: https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification
+Analysis: fetching page 17 at depth 3: https://microsoft.github.io/language-server-protocol/specifications/lsif/0.4.0/specification
+Failed: https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/metaModel/metaModel.ts: Page.goto: Download is starting
+Call log:
+  - navigating to "https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/metaModel/metaModel.ts", waiting until "domcontentloaded"
+
+Analysis: fetching page 18 at depth 3: https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/metaModel/metaModel.ts
+Analysis: fetching page 19 at depth 3: https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/metaModel/metaModel.schema.json
+Analysis: fetching page 20 at depth 3: https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/metaModel/metaModel.json
+Analysis progress: pages=20, current_depth=3, queued=0
+Analysis: fetching page 21 at depth 4: https://microsoft.github.io/language-server-protocol/specifications/specification-3-15
+Analysis complete: pages=21, required_depth=4, failed_pages=2, truncated_by_page_cap=False, depth_cap_reached=False, skipped_by_canonical=2, skipped_by_content_hash=0
+Adaptive: crawler produced 21 records
+Adaptive: quality � structural=0.90, density=1.00, scope=1.00, passed=False
+Adaptive: self-correcting (attempt 3/3)...
+Adaptive: no further crawler adjustments available, retrying as-is...
+Adaptive: running standard crawler...
+Analysis: complete discovery enabled (no limits)
+Analysis: fetching page 1 at depth 0: https://microsoft.github.io/language-server-protocol
+Analysis: fetching page 2 at depth 1: https://microsoft.github.io/language-server-protocol/implementors/servers
+Analysis: fetching page 3 at depth 1: https://microsoft.github.io/language-server-protocol/overviews/lsp/overview
+Analysis: fetching page 4 at depth 1: https://microsoft.github.io/language-server-protocol/specifications/specification-current
+Analysis: fetching page 5 at depth 2: https://microsoft.github.io/language-server-protocol/implementors/sdks
+Analysis: fetching page 6 at depth 2: https://microsoft.github.io/language-server-protocol/overviews/lsif/overview
+Analysis: fetching page 7 at depth 2: https://microsoft.github.io/language-server-protocol/implementors/utilities
+Analysis: fetching page 8 at depth 2: https://microsoft.github.io/language-server-protocol/implementors/tools
+Analysis: fetching page 9 at depth 2: https://microsoft.github.io/language-server-protocol/specification
+Analysis: skipping duplicate canonical URL: https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/
+Failed: https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/metaModel/metaModel.ts: Page.goto: Download is starting
+Call log:
+  - navigating to "https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/metaModel/metaModel.ts", waiting until "domcontentloaded"
+
+Analysis: fetching page 9 at depth 2: https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/metaModel/metaModel.ts
+Analysis: fetching page 10 at depth 2: https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/metaModel/metaModel.schema.json
+Analysis progress: pages=10, current_depth=2, queued=0
+Analysis: fetching page 11 at depth 2: https://microsoft.github.io/language-server-protocol/specifications/base/0.9/specification
+Analysis: fetching page 12 at depth 2: https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/metaModel/metaModel.json
+Analysis: fetching page 13 at depth 2: https://microsoft.github.io/language-server-protocol/specifications/lsif/0.5.0/specification
+Analysis: fetching page 14 at depth 2: https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification
+Analysis: fetching page 15 at depth 2: https://microsoft.github.io/language-server-protocol/specifications/lsif/0.6.0/specification
+Analysis: fetching page 16 at depth 2: https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification
+Analysis: skipping duplicate canonical URL: https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/
+Analysis: fetching page 16 at depth 2: https://microsoft.github.io/language-server-protocol/specifications/specification-3-16
+Analysis: fetching page 17 at depth 3: https://microsoft.github.io/language-server-protocol/specifications/lsif/0.4.0/specification
+Failed: https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/metaModel/metaModel.ts: Page.goto: Download is starting
+Call log:
+  - navigating to "https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/metaModel/metaModel.ts", waiting until "domcontentloaded"
+
+Analysis: fetching page 18 at depth 3: https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/metaModel/metaModel.ts
+Analysis: fetching page 19 at depth 3: https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/metaModel/metaModel.schema.json
+Analysis: fetching page 20 at depth 3: https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/metaModel/metaModel.json
+Analysis progress: pages=20, current_depth=3, queued=0
+Analysis: fetching page 21 at depth 4: https://microsoft.github.io/language-server-protocol/specifications/specification-3-15
+Analysis complete: pages=21, required_depth=4, failed_pages=2, truncated_by_page_cap=False, depth_cap_reached=False, skipped_by_canonical=2, skipped_by_content_hash=0
+Adaptive: crawler produced 21 records
+Adaptive: quality � structural=0.90, density=1.00, scope=1.00, passed=False
+Adaptive: retry budget exhausted, generating feedback report...
+Adaptive: generating XAI feedback report...
+Adaptive: Gemini call failed: 429 Client Error: Too Many Requests for url: https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent
+Output: wrote 1 Markdown file to LSP_docs_full.md

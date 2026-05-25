@@ -1,8 +1,14 @@
 # Required
 playwright==1.58.0
+requests==2.32.3
+beautifulsoup4==4.12.3
+trafilatura==2.0.0
 
 # Optional: PDF support (pip install pymupdf, then no extra setup needed)
 pymupdf==1.27.2.3
+
+# Optional: Markdown (.md) support
+markdown-it-py==3.0.0
 
 # Optional: LLM-assisted seed discovery (requires OLLAMA_API_KEY in .env)
 ollama==0.6.1

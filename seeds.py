@@ -9,10 +9,13 @@ import threading
 import time
 from html import unescape
 from collections.abc import Iterable
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 from dataclasses import dataclass
 from urllib.error import HTTPError, URLError
-from urllib.parse import ParseResult, urljoin, urlparse, urlunparse
+from urllib.parse import ParseResult, urlencode, urljoin, urlparse, urlunparse
 from urllib.request import Request, urlopen
+
+import requests
 
 try:
     from .extraction import extract_page
@@ -51,9 +54,18 @@ COMMON_SEED_SUFFIXES = (
 
 MAX_PROBE_CANDIDATES = 20
 PROBE_TIMEOUT_SECONDS = 4.0
-DEFAULT_LLM_SEED_MODEL = "gemma4:31b-cloud"
+DEFAULT_OLLAMA_PROVIDER = "cloud"
+DEFAULT_CLOUD_LLM_SEED_MODEL = "gemma4:31b-cloud"
+DEFAULT_LOCAL_LLM_SEED_MODEL = "gemma4:latest"
+DEFAULT_GEMINI_LLM_SEED_MODEL = "gemini-2.5-flash-lite"
+DEFAULT_LLM_SEED_MODEL = DEFAULT_CLOUD_LLM_SEED_MODEL
+LOCAL_OLLAMA_HOST = "http://localhost:11434"
+GEMINI_API_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
 MAX_LLM_CONTEXT_LINKS = 60
 WEB_SEARCH_TIMEOUT_SECONDS = 8.0
+DEFAULT_LLM_TIMEOUT_SECONDS = 90.0
+DEFAULT_WEB_SEARCH_PROVIDER = "auto"
+SEARXNG_SEARCH_URL_SUFFIX = "/search"
 ROBOTS_TIMEOUT_SECONDS = 5.0
 SITEMAP_TIMEOUT_SECONDS = 8.0
 MAX_SITEMAP_FILES = 6
@@ -161,6 +173,7 @@ def discover_seed_urls(
     max_seed_urls: int = 8,
     use_llm: bool = False,
     llm_model: str = DEFAULT_LLM_SEED_MODEL,
+    llm_provider: str = DEFAULT_OLLAMA_PROVIDER,
     use_web_search: bool = False,
 ) -> list[str]:
     seed_urls, _ = discover_seed_urls_with_diagnostics(
@@ -168,6 +181,7 @@ def discover_seed_urls(
         max_seed_urls=max_seed_urls,
         use_llm=use_llm,
         llm_model=llm_model,
+        llm_provider=llm_provider,
         use_web_search=use_web_search,
     )
     return seed_urls
@@ -178,6 +192,7 @@ def discover_seed_urls_with_diagnostics(
     max_seed_urls: int = 8,
     use_llm: bool = False,
     llm_model: str = DEFAULT_LLM_SEED_MODEL,
+    llm_provider: str = DEFAULT_OLLAMA_PROVIDER,
     use_web_search: bool = False,
 ) -> tuple[list[str], SeedDiscoveryDiagnostics]:
     normalized_start = _normalize_url(start_url)
@@ -220,6 +235,7 @@ def discover_seed_urls_with_diagnostics(
             page_context=page_context,
             deterministic_candidates=sorted(candidates),
             llm_model=llm_model,
+            llm_provider=llm_provider,
             max_candidates=max_seed_urls,
             use_web_search=use_web_search,
         )
@@ -231,10 +247,17 @@ def discover_seed_urls_with_diagnostics(
             llm_candidate_count=len(llm_candidates),
         )
 
-        # Trust Gemma seeds when available; only use filtered heuristic fallback if LLM fails.
         if llm_candidates:
-            llm_selected = sorted(
-                candidate for candidate in llm_candidates if candidate and candidate != normalized_start
+            llm_ranked = sorted(
+                candidate
+                for candidate in llm_candidates
+                if candidate and candidate != normalized_start
+            )
+            llm_selected = _select_live_candidates(
+                llm_ranked,
+                start_parsed,
+                max_count=max(0, max_seed_urls - 1),
+                allow_unverified_fallback=False,
             )
             return [normalized_start, *llm_selected], diagnostics
 
@@ -271,29 +294,27 @@ def _llm_seed_candidates(
     page_context: PageSeedContext,
     deterministic_candidates: list[str],
     llm_model: str,
+    llm_provider: str,
     max_candidates: int,
     use_web_search: bool,
 ) -> tuple[set[str], str]:
+    provider = _normalize_llm_provider(llm_provider)
     api_key = os.environ.get("OLLAMA_API_KEY", "").strip()
-    if not api_key:
+    if provider == "cloud" and not api_key:
         return set(), "missing-api-key"
+    if provider == "gemini" and not os.environ.get("GEMINI_API_KEY", "").strip():
+        return set(), "missing-gemini-api-key"
 
-    try:
-        ollama_module = importlib.import_module("ollama")
-        client_cls = getattr(ollama_module, "Client", None)
-        if client_cls is None:
-            return set(), "ollama-client-missing"
-    except Exception:
-        return set(), "ollama-package-missing"
-
-    analysis_prompt = _build_llm_analysis_prompt(
-        start_url=start_url,
-        start_parsed=start_parsed,
-        page_links=page_links,
-        page_context=page_context,
-        deterministic_candidates=deterministic_candidates,
-        max_candidates=max_candidates,
-    )
+    client = None
+    if provider in {"cloud", "local"}:
+        try:
+            ollama_module = importlib.import_module("ollama")
+            client_cls = getattr(ollama_module, "Client", None)
+            if client_cls is None:
+                return set(), "ollama-client-missing"
+        except Exception:
+            return set(), "ollama-package-missing"
+        client = _make_ollama_client(client_cls, provider, api_key)
 
     extraction_prompt_template = (
         "Extract all absolute URLs from the following analysis and return ONLY a JSON array of strings.\n"
@@ -307,35 +328,44 @@ def _llm_seed_candidates(
 
     try:
         with _HeartbeatLogger(label="Ollama seed analysis"):
-            web_search_urls = _llm_optional_web_search(
+            web_search_urls, native_web_search = _llm_optional_web_search(
                 use_web_search=use_web_search,
+                llm_provider=provider,
                 api_key=api_key,
                 start_url=start_url,
                 start_parsed=start_parsed,
                 max_candidates=max_candidates,
             )
 
-            client = client_cls(
-                host="https://ollama.com",
-                headers={"Authorization": f"Bearer {api_key}"},
+            analysis_prompt = _build_llm_analysis_prompt(
+                start_url=start_url,
+                start_parsed=start_parsed,
+                page_links=page_links,
+                page_context=page_context,
+                deterministic_candidates=deterministic_candidates,
+                max_candidates=max_candidates,
+                web_search_candidates=sorted(web_search_urls),
             )
+
             analysis_text = _llm_generate_analysis_text(
                 client=client,
+                llm_provider=provider,
                 llm_model=llm_model,
                 analysis_prompt=analysis_prompt,
-                use_web_search=use_web_search,
+                use_web_search=native_web_search,
             )
             if not analysis_text:
-                return set(), "empty-llm-analysis"
+                return set(), "llm-analysis-timeout-or-empty"
 
             extraction_text = _llm_extract_seed_text(
                 client=client,
+                llm_provider=provider,
                 llm_model=llm_model,
                 extraction_prompt=extraction_prompt_template.format(analysis_text=analysis_text),
-                use_web_search=use_web_search,
+                use_web_search=native_web_search,
             )
             if not extraction_text:
-                return set(), "empty-llm-extraction"
+                return set(), "llm-extraction-timeout-or-empty"
 
             suggested_urls = _parse_urls_from_llm(extraction_text)
             suggested_urls.update(web_search_urls)
@@ -358,10 +388,7 @@ def _ollama_web_search_seed_urls(
     start_parsed: ParseResult,
     max_candidates: int,
 ) -> set[str]:
-    query = (
-        f"site:{start_parsed.netloc} documentation seed URLs "
-        f"reference api index module namespace for {start_url}"
-    )
+    query = _build_web_search_query(start_url, start_parsed)
     body = json.dumps({"query": query, "max_results": max(5, max_candidates)}).encode("utf-8")
     request = Request(
         "https://ollama.com/api/web_search",
@@ -393,6 +420,150 @@ def _ollama_web_search_seed_urls(
     }
 
 
+def _external_web_search_seed_urls(
+    start_url: str,
+    start_parsed: ParseResult,
+    max_candidates: int,
+) -> set[str]:
+    provider = _resolve_external_web_search_provider()
+    query = _build_web_search_query(start_url, start_parsed)
+    if provider == "searxng":
+        return _searxng_web_search_seed_urls(query, start_parsed, max_candidates)
+    if provider == "brave":
+        return _brave_web_search_seed_urls(query, start_parsed, max_candidates)
+    if provider == "tavily":
+        return _tavily_web_search_seed_urls(query, start_parsed, max_candidates)
+    return set()
+
+
+def _build_web_search_query(start_url: str, start_parsed: ParseResult) -> str:
+    return (
+        f"site:{start_parsed.netloc} documentation seed URLs "
+        f"reference api index module namespace for {start_url}"
+    )
+
+
+def _resolve_external_web_search_provider() -> str | None:
+    requested = (os.environ.get("DOC_INGESTOR_WEB_SEARCH_PROVIDER") or DEFAULT_WEB_SEARCH_PROVIDER).strip().lower()
+    if requested in {"disabled", "none", "off"}:
+        return None
+    if requested in {"searxng", "brave", "tavily"}:
+        return requested
+
+    if os.environ.get("SEARXNG_BASE_URL", "").strip():
+        return "searxng"
+    if os.environ.get("BRAVE_SEARCH_API_KEY", "").strip():
+        return "brave"
+    if os.environ.get("TAVILY_API_KEY", "").strip():
+        return "tavily"
+    return None
+
+
+def _searxng_web_search_seed_urls(query: str, start_parsed: ParseResult, max_candidates: int) -> set[str]:
+    base_url = os.environ.get("SEARXNG_BASE_URL", "").strip().rstrip("/")
+    if not base_url:
+        return set()
+
+    endpoint = (
+        base_url
+        if base_url.lower().endswith(SEARXNG_SEARCH_URL_SUFFIX)
+        else f"{base_url}{SEARXNG_SEARCH_URL_SUFFIX}"
+    )
+    params = urlencode({"q": query, "format": "json"})
+    request = Request(
+        f"{endpoint}?{params}",
+        headers={"User-Agent": DEFAULT_USER_AGENT, "Accept": "application/json"},
+        method="GET",
+    )
+    payload = _load_json_response(request)
+    if payload is None:
+        return set()
+    extracted = _extract_urls_from_json(payload)
+    return _normalize_search_urls(extracted, start_parsed, max_candidates)
+
+
+def _brave_web_search_seed_urls(query: str, start_parsed: ParseResult, max_candidates: int) -> set[str]:
+    api_key = os.environ.get("BRAVE_SEARCH_API_KEY", "").strip()
+    if not api_key:
+        return set()
+
+    params = urlencode({"q": query, "count": max(5, max_candidates)})
+    request = Request(
+        f"https://api.search.brave.com/res/v1/web/search?{params}",
+        headers={
+            "Accept": "application/json",
+            "User-Agent": DEFAULT_USER_AGENT,
+            "X-Subscription-Token": api_key,
+        },
+        method="GET",
+    )
+    payload = _load_json_response(request)
+    if payload is None:
+        return set()
+    extracted = _extract_urls_from_json(payload)
+    return _normalize_search_urls(extracted, start_parsed, max_candidates)
+
+
+def _tavily_web_search_seed_urls(query: str, start_parsed: ParseResult, max_candidates: int) -> set[str]:
+    api_key = os.environ.get("TAVILY_API_KEY", "").strip()
+    if not api_key:
+        return set()
+
+    body = json.dumps(
+        {
+            "api_key": api_key,
+            "query": query,
+            "max_results": max(5, max_candidates),
+            "search_depth": "basic",
+            "include_raw_content": False,
+        }
+    ).encode("utf-8")
+    request = Request(
+        "https://api.tavily.com/search",
+        data=body,
+        headers={
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "User-Agent": DEFAULT_USER_AGENT,
+        },
+        method="POST",
+    )
+    payload = _load_json_response(request)
+    if payload is None:
+        return set()
+    extracted = _extract_urls_from_json(payload)
+    return _normalize_search_urls(extracted, start_parsed, max_candidates)
+
+
+def _load_json_response(request: Request) -> object | None:
+    try:
+        with urlopen(request, timeout=WEB_SEARCH_TIMEOUT_SECONDS) as response:
+            raw = response.read().decode("utf-8", errors="ignore")
+    except Exception:
+        return None
+
+    try:
+        return json.loads(raw)
+    except Exception:
+        return None
+
+
+def _normalize_search_urls(urls: Iterable[str], start_parsed: ParseResult, max_candidates: int) -> set[str]:
+    ordered: list[str] = []
+    seen: set[str] = set()
+    for url in urls:
+        normalized = _normalize_url(url)
+        if not normalized or not _same_domain(normalized, start_parsed):
+            continue
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        ordered.append(normalized)
+        if len(ordered) >= max(1, max_candidates):
+            break
+    return set(ordered)
+
+
 def _build_llm_analysis_prompt(
     start_url: str,
     start_parsed: ParseResult,
@@ -400,6 +571,7 @@ def _build_llm_analysis_prompt(
     page_context: PageSeedContext,
     deterministic_candidates: list[str],
     max_candidates: int,
+    web_search_candidates: list[str] | None = None,
 ) -> str:
     links_excerpt = _excerpt_lines(page_links, MAX_LLM_CONTEXT_LINKS)
     headings_excerpt = _excerpt_lines(page_context.headings, MAX_CONTEXT_HEADINGS)
@@ -409,6 +581,7 @@ def _build_llm_analysis_prompt(
     interaction_excerpt = _excerpt_lines(page_context.interaction_urls, MAX_LLM_CONTEXT_LINKS)
     network_excerpt = _excerpt_lines(page_context.network_urls, MAX_LLM_CONTEXT_LINKS)
     deterministic_excerpt = _excerpt_lines(deterministic_candidates, MAX_LLM_CONTEXT_LINKS)
+    web_search_excerpt = _excerpt_lines(web_search_candidates or [], MAX_LLM_CONTEXT_LINKS)
 
     return (
         "Context:\n"
@@ -436,6 +609,8 @@ def _build_llm_analysis_prompt(
         f"{iframe_excerpt}\n\n"
         "Deterministic candidate URLs already found (heuristics + robots/sitemap):\n"
         f"{deterministic_excerpt}\n\n"
+        "URLs found through web search:\n"
+        f"{web_search_excerpt}\n\n"
         "Task:\n"
         "1) Analyze the likely documentation structure for this URL.\n"
         "2) Propose high-value seed URLs (top-level indexes/namespaces/clusters).\n"
@@ -450,27 +625,73 @@ def _excerpt_lines(values: list[str], limit: int) -> str:
 
 def _llm_optional_web_search(
     use_web_search: bool,
+    llm_provider: str,
     api_key: str,
     start_url: str,
     start_parsed: ParseResult,
     max_candidates: int,
-) -> set[str]:
+) -> tuple[set[str], bool]:
     if not use_web_search:
-        return set()
+        return set(), False
+    if llm_provider == "gemini":
+        return set(), True
+
+    requested = (os.environ.get("DOC_INGESTOR_WEB_SEARCH_PROVIDER") or DEFAULT_WEB_SEARCH_PROVIDER).strip().lower()
+    if requested == "ollama":
+        if llm_provider != "cloud" or not api_key:
+            return set(), False
+        return _ollama_web_search_seed_urls(
+            api_key=api_key,
+            start_url=start_url,
+            start_parsed=start_parsed,
+            max_candidates=max_candidates,
+        ), True
+
+    external_urls = _external_web_search_seed_urls(
+        start_url=start_url,
+        start_parsed=start_parsed,
+        max_candidates=max_candidates,
+    )
+    if external_urls:
+        return external_urls, False
+
+    if llm_provider != "cloud" or not api_key:
+        return set(), False
     return _ollama_web_search_seed_urls(
         api_key=api_key,
         start_url=start_url,
         start_parsed=start_parsed,
         max_candidates=max_candidates,
+    ), True
+
+
+def _normalize_llm_provider(llm_provider: str) -> str:
+    return llm_provider if llm_provider in {"cloud", "local", "gemini"} else DEFAULT_OLLAMA_PROVIDER
+
+
+def _make_ollama_client(client_cls: object, llm_provider: str, api_key: str) -> object:
+    if llm_provider == "local":
+        return client_cls(host=os.environ.get("OLLAMA_HOST", LOCAL_OLLAMA_HOST))
+    return client_cls(
+        host="https://ollama.com",
+        headers={"Authorization": f"Bearer {api_key}"},
     )
 
 
 def _llm_generate_analysis_text(
-    client: object,
+    client: object | None,
+    llm_provider: str,
     llm_model: str,
     analysis_prompt: str,
     use_web_search: bool,
 ) -> str:
+    if llm_provider == "gemini":
+        return _gemini_generate_text(
+            model=llm_model,
+            system=ANALYSIS_SYSTEM_PROMPT,
+            user=analysis_prompt,
+            use_web_search=use_web_search,
+        )
     kwargs = {
         "model": llm_model,
         "messages": [
@@ -481,15 +702,23 @@ def _llm_generate_analysis_text(
     }
     if use_web_search:
         kwargs["options"] = {"web_search": True}
-    return _extract_message_content(client.chat(**kwargs))
+    return _chat_with_timeout(client, kwargs)
 
 
 def _llm_extract_seed_text(
-    client: object,
+    client: object | None,
+    llm_provider: str,
     llm_model: str,
     extraction_prompt: str,
     use_web_search: bool,
 ) -> str:
+    if llm_provider == "gemini":
+        return _gemini_generate_text(
+            model=llm_model,
+            system="You extract URLs and return strict JSON.",
+            user=extraction_prompt,
+            use_web_search=use_web_search,
+        )
     kwargs = {
         "model": llm_model,
         "messages": [
@@ -500,7 +729,92 @@ def _llm_extract_seed_text(
     }
     if use_web_search:
         kwargs["options"] = {"web_search": True}
-    return _extract_message_content(client.chat(**kwargs))
+    return _chat_with_timeout(client, kwargs)
+
+
+def _chat_with_timeout(client: object, kwargs: dict[str, object]) -> str:
+    timeout_seconds = _resolve_llm_timeout_seconds()
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(client.chat, **kwargs)
+        try:
+            response = future.result(timeout=timeout_seconds)
+        except FutureTimeoutError:
+            future.cancel()
+            print(
+                f"Seed discovery: LLM call timed out after {int(timeout_seconds)}s; falling back to heuristic seeds.",
+                file=sys.stderr,
+            )
+            return ""
+        except Exception:
+            return ""
+    return _extract_message_content(response)
+
+
+def _gemini_generate_text(
+    model: str,
+    system: str,
+    user: str,
+    use_web_search: bool,
+) -> str:
+    api_key = os.environ.get("GEMINI_API_KEY", "").strip()
+    if not api_key:
+        return ""
+
+    payload: dict[str, object] = {
+        "system_instruction": {"parts": [{"text": system}]},
+        "contents": [{"parts": [{"text": user}]}],
+    }
+    if use_web_search:
+        payload["tools"] = [{"google_search": {}}]
+
+    try:
+        response = requests.post(
+            f"{GEMINI_API_BASE_URL}/models/{model}:generateContent",
+            headers={
+                "x-goog-api-key": api_key,
+                "Content-Type": "application/json",
+            },
+            json=payload,
+            timeout=_resolve_llm_timeout_seconds(),
+        )
+        response.raise_for_status()
+    except Exception:
+        return ""
+
+    return _extract_gemini_text(response.json())
+
+
+def _extract_gemini_text(payload: object) -> str:
+    if not isinstance(payload, dict):
+        return ""
+    candidates = payload.get("candidates")
+    if not isinstance(candidates, list):
+        return ""
+    for candidate in candidates:
+        if not isinstance(candidate, dict):
+            continue
+        content = candidate.get("content")
+        if not isinstance(content, dict):
+            continue
+        parts = content.get("parts")
+        if not isinstance(parts, list):
+            continue
+        texts = [part.get("text", "") for part in parts if isinstance(part, dict) and isinstance(part.get("text"), str)]
+        joined = "".join(texts).strip()
+        if joined:
+            return joined
+    return ""
+
+
+def _resolve_llm_timeout_seconds() -> float:
+    raw = os.environ.get("DOC_INGESTOR_LLM_TIMEOUT_SECONDS", "").strip()
+    if not raw:
+        return DEFAULT_LLM_TIMEOUT_SECONDS
+    try:
+        value = float(raw)
+    except ValueError:
+        return DEFAULT_LLM_TIMEOUT_SECONDS
+    return max(5.0, value)
 
 
 def _extract_urls_from_json(payload: object) -> set[str]:
@@ -988,6 +1302,7 @@ def _select_live_candidates(
     ranked_candidates: list[str],
     start_parsed: ParseResult,
     max_count: int,
+    allow_unverified_fallback: bool = True,
 ) -> list[str]:
     if max_count <= 0:
         return []
@@ -1016,8 +1331,10 @@ def _select_live_candidates(
     if selected:
         return selected
 
-    # Fallback for restrictive sites that block HEAD/GET probing.
-    return ranked_candidates[:max_count]
+    if allow_unverified_fallback:
+        # Fallback for restrictive sites that block HEAD/GET probing.
+        return ranked_candidates[:max_count]
+    return []
 
 
 def _is_live_doc_candidate(candidate: str, start_parsed: ParseResult) -> bool:

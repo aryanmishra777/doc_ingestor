@@ -10,7 +10,15 @@ venv/
 .env
 ollama_api_key.txt
 
+# Claude workspace
+.claude/
+
 # Markdown chunks
 *_chunks/
 *_chunks/*.md
 *.md
+mcp_servers/
+mcp_servers.zip
+
+# Local tests
+test_include_sparse.py

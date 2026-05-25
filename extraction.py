@@ -13,6 +13,17 @@ BOILERPLATE_TAGS = {"nav", "footer", "aside", "header", "script", "style", "nosc
 CONTENT_ROOT_TAGS = {"main", "article"}
 BOILERPLATE_HINTS = ("cookie", "consent", "sidebar", "menu", "navbar", "footer")
 SPARSE_CONTENT_CHAR_THRESHOLD = 120
+MAX_DISCOVERY_INTERACTIONS = 6
+DISCOVERY_TEXT_HINTS = (
+    "next",
+    "more",
+    "load more",
+    "show more",
+    "expand",
+    "see more",
+    "older",
+    "continue",
+)
 # Class/id tokens that suggest a div or section is the primary content container.
 _CONTENT_DIV_CLASS_HINTS = frozenset({
     "content", "main", "docs", "documentation", "markdown",
@@ -33,6 +44,17 @@ VOID_TAGS = {
     "source",
     "track",
     "wbr",
+    # SVG leaf elements — often appear without closing tags inside nav icons,
+    # which would otherwise permanently corrupt skip_depth tracking.
+    "path",
+    "circle",
+    "ellipse",
+    "line",
+    "polyline",
+    "polygon",
+    "rect",
+    "stop",
+    "use",
 }
 
 
@@ -58,9 +80,13 @@ def extract_page(url: str, depth: int = 0, order_index: int = 0) -> DocPageRecor
             except Exception:
                 pass
             final_url = page.url or url
+            discovered_links = _discover_interactive_links(page, final_url)
             html = page.content()
             browser.close()
-        return extract_from_html(html, url=final_url, depth=depth, order_index=order_index)
+        record = extract_from_html(html, url=final_url, depth=depth, order_index=order_index)
+        if discovered_links:
+            record["links"] = sorted(set(record.get("links", [])) | discovered_links)
+        return record
     except Exception as exc:
         print(f"Failed: {url}: {exc}", file=sys.stderr)
         return _error_record(url, depth, order_index, "extractor: page extraction failed", exc)
@@ -78,10 +104,14 @@ def extract_page_in_browser(browser, url: str, depth: int = 0, order_index: int 
             except Exception:
                 pass
             final_url = page.url or url
+            discovered_links = _discover_interactive_links(page, final_url)
             html = page.content()
         finally:
             context.close()
-        return extract_from_html(html, url=final_url, depth=depth, order_index=order_index)
+        record = extract_from_html(html, url=final_url, depth=depth, order_index=order_index)
+        if discovered_links:
+            record["links"] = sorted(set(record.get("links", [])) | discovered_links)
+        return record
     except Exception as exc:
         print(f"Failed: {url}: {exc}", file=sys.stderr)
         return _error_record(url, depth, order_index, "extractor: page extraction failed", exc)
@@ -110,6 +140,23 @@ def extract_from_html(
         full_parser.close()
         if not _is_sparse_content(full_parser):
             parser = full_parser
+
+    # Final safety net: when the native, structure-aware parser still produced
+    # no real content, try trafilatura. It uses content-density scoring instead
+    # of class/tag heuristics, so it handles sites that don't follow semantic
+    # HTML conventions or that have unusual wrapper class names. trafilatura
+    # returns None when the page is genuinely a navigation index with no prose,
+    # in which case we fall through to the sparse_link_items branch below.
+    if _is_sparse_content(parser):
+        fallback = _extract_via_trafilatura(html, url, depth, order_index)
+        if fallback is not None:
+            # Preserve link discovery from the native parser — trafilatura
+            # strips links by design, but downstream crawling needs them.
+            fallback["links"] = sorted(set(parser.links))
+            fallback["canonical_url"] = parser.canonical_url
+            if parser.breadcrumbs:
+                fallback["metadata"]["breadcrumbs"] = parser.breadcrumbs
+            return fallback
 
     if _is_sparse_content(parser) and parser.sparse_link_items:
         parser.content_blocks.append(
@@ -149,6 +196,209 @@ def extract_from_html(
         },
         "errors": [],
     }
+
+
+def _extract_via_trafilatura(
+    html: str, url: str, depth: int, order_index: int
+) -> DocPageRecord | None:
+    """Content-density-based extraction fallback for sites the native parser misses.
+
+    Returns None if trafilatura is unavailable, the page yields no extractable
+    content, or the resulting XML cannot be parsed.
+    """
+    try:
+        import trafilatura
+        from xml.etree import ElementTree as ET
+    except ImportError:
+        return None
+
+    try:
+        xml_str = trafilatura.extract(
+            html,
+            url=url,
+            output_format="xml",
+            include_comments=False,
+            include_tables=True,
+            include_formatting=True,
+            include_links=False,
+        )
+    except Exception:
+        return None
+    if not xml_str:
+        return None
+
+    try:
+        root = ET.fromstring(xml_str)
+    except ET.ParseError:
+        return None
+
+    title = ""
+    try:
+        meta = trafilatura.extract_metadata(html, default_url=url)
+        title = (getattr(meta, "title", "") or "").strip() if meta else ""
+    except Exception:
+        pass
+
+    content_blocks: list[ContentBlock] = []
+    code_blocks: list[CodeBlock] = []
+    _walk_trafilatura_xml(root, content_blocks, code_blocks)
+
+    if not content_blocks and not code_blocks:
+        return None
+
+    if not title:
+        for block in content_blocks:
+            if block.get("type") == "heading" and block.get("text"):
+                title = block["text"]
+                break
+    return {
+        "url": url,
+        "canonical_url": None,
+        "depth": depth,
+        "order_index": order_index,
+        "title": title or url,
+        "content_blocks": content_blocks,
+        "code_blocks": code_blocks,
+        "links": [],
+        "metadata": {
+            "breadcrumbs": [],
+            "source_domain": urlparse(url).netloc or None,
+            "extractor": "trafilatura",
+        },
+        "errors": [],
+    }
+
+
+def _walk_trafilatura_xml(
+    elem,
+    content_blocks: list[ContentBlock],
+    code_blocks: list[CodeBlock],
+) -> None:
+    for child in elem:
+        tag = child.tag.lower()
+        if tag in {"doc", "main", "body"}:
+            _walk_trafilatura_xml(child, content_blocks, code_blocks)
+        elif tag == "head":
+            level = _heading_level_from_rend(child.get("rend", ""))
+            text = _flatten_trafilatura_inline(child).strip()
+            if text:
+                content_blocks.append({
+                    "type": "heading", "level": level, "text": text,
+                    "items": None, "rows": None, "code_block_index": None,
+                })
+        elif tag == "p":
+            text = _flatten_trafilatura_inline(child).strip()
+            if text:
+                content_blocks.append({
+                    "type": "paragraph", "level": None, "text": text,
+                    "items": None, "rows": None, "code_block_index": None,
+                })
+        elif tag == "list":
+            items = [
+                _flatten_trafilatura_inline(item).strip()
+                for item in child.findall("item")
+            ]
+            items = [it for it in items if it]
+            if items:
+                content_blocks.append({
+                    "type": "list", "level": None, "text": "",
+                    "items": items, "rows": None, "code_block_index": None,
+                })
+        elif tag == "table":
+            rows: list[list[str]] = []
+            for row_elem in child.findall("row"):
+                row = [
+                    _flatten_trafilatura_inline(cell).strip()
+                    for cell in row_elem.findall("cell")
+                ]
+                if any(row):
+                    rows.append(row)
+            if rows:
+                content_blocks.append({
+                    "type": "table", "level": None, "text": "",
+                    "items": None, "rows": rows, "code_block_index": None,
+                })
+        elif tag == "code":
+            # Top-level <code> in trafilatura XML = block-level code (inline
+            # <code> is handled by _flatten_trafilatura_inline inside paragraphs).
+            text = _flatten_trafilatura_inline(child)
+            if text.strip():
+                _append_code_block(text, code_blocks, content_blocks)
+        elif tag == "quote":
+            # TEI <quote> covers both blockquotes and code-like content (some
+            # docs sites render code via custom components that trafilatura
+            # can't recognise as <pre><code>). Use a content heuristic.
+            text = _flatten_trafilatura_inline(child)
+            if not text.strip():
+                continue
+            if _looks_like_code(text):
+                _append_code_block(text, code_blocks, content_blocks)
+            else:
+                content_blocks.append({
+                    "type": "paragraph", "level": None, "text": text.strip(),
+                    "items": None, "rows": None, "code_block_index": None,
+                })
+
+
+def _flatten_trafilatura_inline(elem) -> str:
+    parts: list[str] = []
+    if elem.text:
+        parts.append(elem.text)
+    for child in elem:
+        tag = child.tag.lower()
+        inner = _flatten_trafilatura_inline(child)
+        if tag == "code":
+            parts.append(f"`{inner}`" if inner else "")
+        elif tag == "hi":
+            rend = (child.get("rend") or "").lower()
+            if "#b" in rend:
+                parts.append(f"**{inner}**")
+            elif "#i" in rend:
+                parts.append(f"*{inner}*")
+            else:
+                parts.append(inner)
+        elif tag == "lb":
+            parts.append("\n")
+        else:
+            parts.append(inner)
+        if child.tail:
+            parts.append(child.tail)
+    return "".join(parts)
+
+
+def _heading_level_from_rend(rend: str) -> int:
+    rend = (rend or "").strip().lower()
+    if rend.startswith("h") and rend[1:].isdigit():
+        return max(1, min(6, int(rend[1:])))
+    return 2
+
+
+def _append_code_block(
+    text: str,
+    code_blocks: list[CodeBlock],
+    content_blocks: list[ContentBlock],
+) -> None:
+    code_block_index = len(code_blocks)
+    code_blocks.append({"language": None, "text": text})
+    content_blocks.append({
+        "type": "code", "level": None, "text": "",
+        "items": None, "rows": None, "code_block_index": code_block_index,
+    })
+
+
+_CODE_TOKEN_PATTERNS = (
+    "{", "}", "();", ");", "=>", "==", "!=", "->",
+    "function ", "const ", "let ", "var ", "return ",
+    "import ", "from ", "def ", "class ", "public ",
+    "#include", "<?php",
+)
+
+
+def _looks_like_code(text: str) -> bool:
+    if "\n" in text and any(token in text for token in _CODE_TOKEN_PATTERNS):
+        return True
+    # Tight single-line snippets that are clearly code (e.g. a function signature).
+    return text.count(";") >= 2 or text.count("{") >= 1 and text.count("}") >= 1
 
 
 class _DocumentationHTMLParser(HTMLParser):
@@ -197,9 +447,11 @@ class _DocumentationHTMLParser(HTMLParser):
         self._handle_anchor_buffer(tag, attrs_dict)
 
         # content capturing
+        if tag == "title":
+            self._text_capture = {"kind": "title", "parts": []}
+            return
+
         if not self._capturing_content:
-            if tag == "title":
-                self._text_capture = {"kind": "title", "parts": []}
             return
 
         self._handle_content_tag_start(tag, attrs_dict)
@@ -284,6 +536,8 @@ class _DocumentationHTMLParser(HTMLParser):
 
     def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         self.handle_starttag(tag, attrs)
+        if tag not in VOID_TAGS:
+            self.handle_endtag(tag)
 
     def handle_endtag(self, tag: str) -> None:
         if self._handle_skip_depth():
@@ -471,8 +725,15 @@ class _DocumentationHTMLParser(HTMLParser):
             return False
         if tag in BOILERPLATE_TAGS:
             return True
+        # Token-boundary match: a wrapper div with class "layout__2-sidebars-inline"
+        # (which contains BOTH the sidebar and <main>) must not be flagged just
+        # because the plural "sidebars" contains the substring "sidebar".
+        return self._marker_has_boilerplate_token(attrs)
+
+    def _marker_has_boilerplate_token(self, attrs: dict[str, str]) -> bool:
         marker = f"{attrs.get('id', '')} {attrs.get('class', '')}".lower()
-        return any(hint in marker for hint in BOILERPLATE_HINTS)
+        tokens = set(marker.replace("-", " ").replace("_", " ").split())
+        return bool(tokens & set(BOILERPLATE_HINTS))
 
     def _is_supplemental_content_root(self, tag: str, attrs: dict[str, str]) -> bool:
         marker = f"{attrs.get('id', '')} {attrs.get('class', '')}".lower()
@@ -481,9 +742,7 @@ class _DocumentationHTMLParser(HTMLParser):
         if tag in {"div", "section"}:
             # Tokenise on word boundaries so "main-content" → {"main", "content"}.
             tokens = set(marker.replace("-", " ").replace("_", " ").split())
-            if tokens & _CONTENT_DIV_CLASS_HINTS and not any(
-                h in marker for h in BOILERPLATE_HINTS
-            ):
+            if tokens & _CONTENT_DIV_CLASS_HINTS and not (tokens & set(BOILERPLATE_HINTS)):
                 return True
         return False
 
@@ -525,6 +784,93 @@ def _is_sparse_content(parser: _DocumentationHTMLParser) -> bool:
 
 def _escape_markdown_link_text(text: str) -> str:
     return text.replace("[", "\\[").replace("]", "\\]")
+
+
+def _discover_interactive_links(page: object, base_url: str) -> set[str]:
+    discovered = _collect_page_links(page, base_url)
+    interaction_count = 0
+
+    try:
+        candidates = page.query_selector_all("button, summary, [role='button'], [role='tab'], [aria-controls]")
+    except Exception:
+        return discovered
+
+    for element in candidates:
+        if interaction_count >= MAX_DISCOVERY_INTERACTIONS:
+            break
+        if not _looks_like_pagination_control(element):
+            continue
+        if _click_for_discovery(page, element, base_url, discovered):
+            interaction_count += 1
+
+    return discovered
+
+
+def _collect_page_links(page: object, base_url: str) -> set[str]:
+    try:
+        hrefs = page.eval_on_selector_all("a[href]", "nodes => nodes.map(node => node.href)")
+    except Exception:
+        return set()
+
+    if not isinstance(hrefs, list):
+        return set()
+
+    discovered: set[str] = set()
+    for href in hrefs:
+        resolved = urljoin(base_url, str(href))
+        if resolved.startswith(("http://", "https://")):
+            discovered.add(resolved)
+    return discovered
+
+
+def _looks_like_pagination_control(element: object) -> bool:
+    text = _safe_element_text(element)
+    if not text:
+        return False
+    lowered = text.lower()
+    return any(hint in lowered for hint in DISCOVERY_TEXT_HINTS)
+
+
+def _safe_element_text(element: object) -> str:
+    try:
+        return (element.inner_text(timeout=800) or "").strip()
+    except Exception:
+        return ""
+
+
+def _click_for_discovery(
+    page: object,
+    element: object,
+    base_url: str,
+    discovered: set[str],
+) -> bool:
+    original_url = ""
+    try:
+        original_url = page.url or base_url
+        element.scroll_into_view_if_needed(timeout=1_000)
+        element.click(timeout=1_500)
+        try:
+            page.wait_for_load_state("networkidle", timeout=2_500)
+        except Exception:
+            page.wait_for_timeout(400)
+
+        current_url = page.url or original_url
+        if current_url.startswith(("http://", "https://")):
+            discovered.add(current_url)
+        discovered.update(_collect_page_links(page, current_url or base_url))
+
+        if current_url != original_url:
+            try:
+                page.go_back(wait_until="domcontentloaded", timeout=5_000)
+                try:
+                    page.wait_for_load_state("networkidle", timeout=2_500)
+                except Exception:
+                    pass
+            except Exception:
+                pass
+        return True
+    except Exception:
+        return False
 
 
 _error_record = make_error_record

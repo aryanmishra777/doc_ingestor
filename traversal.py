@@ -64,7 +64,8 @@ class LinkTraversalFrontier:
         self.start_url = self._normalize_url(start_url, None)
         parsed_start = urlparse(self.start_url)
         self.allowed_domain = parsed_start.netloc
-        self.start_path = parsed_start.path.rstrip("/") or "/"
+        # Lowercased to match the lowercased `path` used in _is_relevant_edge comparisons.
+        self.start_path = (parsed_start.path.rstrip("/") or "/").lower()
         self.queue: deque[tuple[str, int]] = deque([(self.start_url, 0)])
         self.seen = {self.start_url}
         self.pages_yielded = 0
@@ -142,4 +143,9 @@ class LinkTraversalFrontier:
             return False
         if path in {"", "/"} or path.startswith(self.start_path.rstrip("/") + "/"):
             return True
+        # Only use the doc-signal fallback when the start URL is above the docs tree.
+        # If start_path already contains a signal (e.g. /docs/Web/JavaScript), the
+        # fallback would let the crawler escape into sibling subtrees (URL explosion).
+        if any(signal in self.start_path.lower() for signal in DOC_PATH_SIGNALS):
+            return False
         return any(signal in path for signal in DOC_PATH_SIGNALS)
