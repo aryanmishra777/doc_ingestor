@@ -29,6 +29,8 @@ strategy/factory facades, and the adaptive crawler state flow.
 - [Playwright](https://playwright.dev/python/) (required)
 - [pymupdf](https://pymupdf.readthedocs.io/) (optional — enables PDF support)
 - [ollama](https://github.com/ollama/ollama-python) (optional — enables LLM-assisted seed discovery and adaptive LLM steps)
+- `langchain`, `langchain-ollama`, `langchain-huggingface`, and `langchain-community` (optional — enables adaptive LangChain agents)
+- OpenVINO / IPEX-LLM packages for `DOC_INGESTOR_AGENT_RUNTIME=openvino` or `ipex`
 
 ## Installation
 
@@ -206,7 +208,7 @@ Adaptive mode runs a multi-phase agent before and after the standard crawl:
 3. Probes for `openapi.json` / `swagger.json` — API schema endpoints
 4. Detects known doc frameworks from homepage HTML (Docusaurus, GitBook, ReadTheDocs, MkDocs)
 
-If any endpoint is found, an Ollama model generates a targeted Python fetch script that outputs clean JSONL directly, skipping the BFS crawl entirely. If detection fails or the model is unavailable, the standard crawler runs as normal.
+If any endpoint is found, a LangChain script-generation agent generates a targeted Python fetch script that outputs clean JSONL directly, skipping the BFS crawl entirely. If detection fails or the model is unavailable, the standard crawler runs as normal.
 
 **Post-checks (deterministic quality evaluation):**
 - **Structural score** — fraction of records with valid URL, title, and content (threshold: >95%)
@@ -217,7 +219,7 @@ If quality checks fail, the agent self-corrects up to 3 times:
 - Script path: rewrites the fetch script with the error trace appended as context
 - Crawler path: retries with `include_sparse_pages=True`, then with no depth limit
 
-If retries are exhausted, a feedback report is emitted to stderr explaining the failure mode (`SELECTOR_MISMATCH`, `PAGINATION_FAILURE`, `RATE_LIMITED`, `EMPTY_CONTENT`, or `SYNTAX_ERROR`), whether a permanent fix is recommended, and what the immediate fix would be.
+If retries are exhausted, a LangChain feedback-analysis agent emits a report to stderr explaining the failure mode (`SELECTOR_MISMATCH`, `PAGINATION_FAILURE`, `RATE_LIMITED`, `EMPTY_CONTENT`, or `SYNTAX_ERROR`), whether a permanent fix is recommended, and what the immediate fix would be.
 
 ```bash
 python cli.py https://developer.mozilla.org/en-US/docs/Web/JavaScript \
@@ -245,6 +247,34 @@ python cli.py https://docs.python.org/3/ \
 ```
 
 Cloud mode requires `OLLAMA_API_KEY` for script generation and feedback analysis. Local mode requires a running Ollama server. The deterministic probing and quality evaluation steps run regardless.
+
+### Adaptive Agent Runtime
+
+By default, adaptive mode runs through LangChain agents with callable tools for detection context, retry history, output schema, quality metrics, and execution traces. If the optional LangChain stack is not installed or cannot run the selected model, `doc_ingestor` falls back to the previous direct chat path.
+
+Use local Gemma through Ollama:
+
+```env
+DOC_INGESTOR_AGENT_RUNTIME=ollama
+OLLAMA_HOST=http://localhost:11434
+```
+
+Use OpenVINO for local text generation:
+
+```env
+DOC_INGESTOR_AGENT_RUNTIME=openvino
+DOC_INGESTOR_OPENVINO_MODEL=google/gemma-2-2b-it
+DOC_INGESTOR_OPENVINO_DEVICE=CPU
+```
+
+Use IPEX-LLM through LangChain Community:
+
+```env
+DOC_INGESTOR_AGENT_RUNTIME=ipex
+DOC_INGESTOR_IPEX_MODEL=google/gemma-2-2b-it
+```
+
+Set `DOC_INGESTOR_AGENT_MODE=direct` to bypass LangChain agents and force the legacy direct chat call.
 
 ## All Flags
 

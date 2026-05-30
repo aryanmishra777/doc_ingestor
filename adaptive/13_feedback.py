@@ -10,6 +10,10 @@ Builds a compact trace of adaptive decisions, asks the LLM for failure analysis 
 available, emits the report, and provides the default stderr logger.
 """
 
+from adaptive.agent_runtime import AgentRequest, run_agent_text
+from adaptive.feedback_agent_tools import feedback_analysis_tools
+
+
 def _generate_feedback(
     state: AgentState, log: Callable[[str], None]
 ) -> dict[str, Any] | None:
@@ -21,7 +25,19 @@ def _generate_feedback(
         log("Adaptive: feedback analysis skipped (Gemini not available)")
         return None
 
-    text = _llm_chat(client, state.llm_provider, state.llm_model, _FEEDBACK_SYSTEM, _build_trace(state), log)
+    trace = _build_trace(state)
+    text = run_agent_text(
+        AgentRequest(
+            name="feedback-analysis",
+            provider=state.llm_provider,
+            model=state.llm_model,
+            system_prompt=_FEEDBACK_SYSTEM,
+            user_prompt=trace,
+            tools=feedback_analysis_tools(state, trace),
+        ),
+        fallback=lambda: _llm_chat(client, state.llm_provider, state.llm_model, _FEEDBACK_SYSTEM, trace, log),
+        log=log,
+    )
     if not text:
         return None
 

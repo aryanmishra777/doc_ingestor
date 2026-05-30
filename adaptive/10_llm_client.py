@@ -10,6 +10,10 @@ Centralizes Ollama/Gemini client setup, provider normalization, chat calls, time
 handling, and the prompt used to generate targeted fetch scripts.
 """
 
+from adaptive.agent_runtime import AgentRequest, run_agent_text
+from adaptive.script_agent_tools import script_generation_tools
+
+
 def _generate_fetch_script(
     state: AgentState, log: Callable[[str], None]
 ) -> tuple[str | None, str | None]:
@@ -30,7 +34,18 @@ def _generate_fetch_script(
         user_prompt += f"\nPrevious attempt(s) failed. Error context:\n{state.generation_context}\n"
     user_prompt += "\nWrite the Python extraction script now."
 
-    text = _llm_chat(client, state.llm_provider, state.llm_model, _SCRIPT_SYSTEM, user_prompt, log)
+    text = run_agent_text(
+        AgentRequest(
+            name="script-generation",
+            provider=state.llm_provider,
+            model=state.llm_model,
+            system_prompt=_SCRIPT_SYSTEM,
+            user_prompt=user_prompt,
+            tools=script_generation_tools(state),
+        ),
+        fallback=lambda: _llm_chat(client, state.llm_provider, state.llm_model, _SCRIPT_SYSTEM, user_prompt, log),
+        log=log,
+    )
     if not text:
         return None, "empty response from LLM"
 

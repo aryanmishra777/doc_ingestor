@@ -17,6 +17,8 @@ ollama_api_key.txt
 *_chunks/
 *_chunks/*.md
 *.md
+!docs/
+!docs/*.md
 mcp_servers/
 mcp_servers.zip
 
