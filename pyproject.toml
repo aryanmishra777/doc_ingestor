@@ -1,0 +1,17 @@
+[tool.ruff]
+line-length = 120
+exclude = [
+    "venv",
+    "mcp_servers",
+    "*_chunks",
+    "adaptive/[0-9][0-9]_*.py",
+    "seeds/[0-9][0-9]_*.py",
+    "cli_app/[0-9][0-9]_*.py",
+    "tests/regression_*.py",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["E402"]
+"adaptive/__init__.py" = ["S102"]
+"seeds/__init__.py" = ["S102"]
+"cli.py" = ["S102"]

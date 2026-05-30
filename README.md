@@ -17,6 +17,12 @@ LLMs are only as good as what they were trained on. When you're working with a l
 - Chunked output for large crawls (default: 50 pages per file)
 - No external API required for basic use
 
+## Architecture
+
+The refactor notes and diagrams live in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
+and [`docs/DESIGN.md`](docs/DESIGN.md). They cover the layered packages, C4 views,
+strategy/factory facades, and the adaptive crawler state flow.
+
 ## Requirements
 
 - Python 3.11+
