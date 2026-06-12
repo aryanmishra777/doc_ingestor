@@ -12,3 +12,13 @@ markdown-it-py==3.0.0
 
 # Optional: LLM-assisted seed discovery (requires OLLAMA_API_KEY in .env)
 ollama==0.6.1
+
+# Optional: LangChain adaptive agents (uncomment to enable; see README "Adaptive Agent Runtime")
+# langchain
+# langchain-ollama
+# langchain-huggingface
+# langchain-community
+
+# Optional: Intel local runtimes for the adaptive agents
+# optimum[openvino]   # DOC_INGESTOR_AGENT_RUNTIME=openvino
+# ipex-llm            # DOC_INGESTOR_AGENT_RUNTIME=ipex

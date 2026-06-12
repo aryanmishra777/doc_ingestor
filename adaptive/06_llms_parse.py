@@ -103,6 +103,19 @@ def _parse_page_attrs(attrs: str) -> dict[str, str]:
     }
 
 
+def _clean_llms_title(title: str) -> str:
+    title = html.unescape(title).strip()
+    title = re.sub(r"^\s{0,3}#{1,6}\s+", "", title).strip()
+    return title or "Untitled"
+
+
+def _unique_slug(title: str, seen_slugs: dict[str, int]) -> str:
+    base = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-") or "section"
+    count = seen_slugs.get(base, 0)
+    seen_slugs[base] = count + 1
+    return base if count == 0 else f"{base}-{count + 1}"
+
+
 def _extract_llms_metadata_line(body: str, key: str) -> tuple[str | None, str]:
     match = re.match(rf"\s*{re.escape(key)}:\s*(.*?)\s*(?:\r?\n|$)", body, flags=re.IGNORECASE)
     if not match:

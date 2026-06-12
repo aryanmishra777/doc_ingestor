@@ -13,10 +13,11 @@ ollama_api_key.txt
 # Claude workspace
 .claude/
 
-# Markdown chunks
+# Markdown chunks (crawl output)
 *_chunks/
 *_chunks/*.md
 *.md
+!README.md
 !docs/
 !docs/*.md
 mcp_servers/

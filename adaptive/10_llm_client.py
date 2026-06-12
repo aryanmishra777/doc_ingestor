@@ -41,7 +41,7 @@ def _generate_fetch_script(
             model=state.llm_model,
             system_prompt=_SCRIPT_SYSTEM,
             user_prompt=user_prompt,
-            tools=script_generation_tools(state),
+            tools=script_generation_tools(state, http_get=_http_get, execute_script=_execute_script),
         ),
         fallback=lambda: _llm_chat(client, state.llm_provider, state.llm_model, _SCRIPT_SYSTEM, user_prompt, log),
         log=log,

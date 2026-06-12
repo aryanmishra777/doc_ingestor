@@ -9,12 +9,17 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT_TESTS = [
     "regression_adaptive_llms.py",
+    "regression_adaptive_llms_parse.py",
     "regression_adaptive_single_doc.py",
     "regression_adaptive_sitemap.py",
+    "regression_adaptive_sitemap_roots.py",
+    "regression_adaptive_sitemap_helpers.py",
     "regression_gemini_integration.py",
     "regression_seed_filtering.py",
     "regression_seed_web_search.py",
+    "regression_seed_web_search_ddg.py",
     "regression_include_sparse.py",
+    "regression_include_sparse_pipeline.py",
 ]
 
 

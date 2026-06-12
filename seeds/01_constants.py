@@ -17,7 +17,7 @@ from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 from dataclasses import dataclass
 from urllib.error import HTTPError, URLError
-from urllib.parse import ParseResult, urlencode, urljoin, urlparse, urlunparse
+from urllib.parse import ParseResult, parse_qs, urlencode, urljoin, urlparse, urlunparse
 from urllib.request import Request, urlopen
 
 import requests
@@ -70,6 +70,9 @@ MAX_LLM_CONTEXT_LINKS = 60
 WEB_SEARCH_TIMEOUT_SECONDS = 8.0
 DEFAULT_LLM_TIMEOUT_SECONDS = 90.0
 DEFAULT_WEB_SEARCH_PROVIDER = "auto"
+JSON_CONTENT_TYPE = "application/json"
+TINYFISH_SEARCH_API_URL = "https://api.search.tinyfish.ai"
+DUCKDUCKGO_SEARCH_URL = "https://html.duckduckgo.com/html/"
 SEARXNG_SEARCH_URL_SUFFIX = "/search"
 ROBOTS_TIMEOUT_SECONDS = 5.0
 SITEMAP_TIMEOUT_SECONDS = 8.0

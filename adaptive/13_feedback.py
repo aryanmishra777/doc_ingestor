@@ -12,6 +12,7 @@ available, emits the report, and provides the default stderr logger.
 
 from adaptive.agent_runtime import AgentRequest, run_agent_text
 from adaptive.feedback_agent_tools import feedback_analysis_tools
+from adaptive.feedback_schema import validate_feedback_report
 
 
 def _generate_feedback(
@@ -33,7 +34,7 @@ def _generate_feedback(
             model=state.llm_model,
             system_prompt=_FEEDBACK_SYSTEM,
             user_prompt=trace,
-            tools=feedback_analysis_tools(state, trace),
+            tools=feedback_analysis_tools(state, trace, http_get=_http_get),
         ),
         fallback=lambda: _llm_chat(client, state.llm_provider, state.llm_model, _FEEDBACK_SYSTEM, trace, log),
         log=log,
@@ -44,10 +45,14 @@ def _generate_feedback(
     cleaned = re.sub(r"^```(?:json)?\n?", "", text.strip())
     cleaned = re.sub(r"\n?```$", "", cleaned.strip())
     try:
-        return json.loads(cleaned)
+        parsed = json.loads(cleaned)
     except json.JSONDecodeError:
         log(f"Adaptive: feedback JSON parse failed: {cleaned[:200]}")
         return None
+    report = validate_feedback_report(parsed)
+    if report is None:
+        log(f"Adaptive: feedback report rejected by schema: {cleaned[:200]}")
+    return report
 
 
 def _build_trace(state: AgentState) -> str:

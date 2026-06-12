@@ -10,7 +10,10 @@ sources during probing.
 def _phase_crawler_fallback(state: AgentState, log: Callable[[str], None]) -> None:
     log("Adaptive: running standard crawler...")
     try:
-        records, _ = collect_records(state.target_url, **state.crawler_kwargs)
+        if state.crawl_seed_urls:
+            records = _collect_records_for_seed_urls(state.crawl_seed_urls, log=log, **state.crawler_kwargs)
+        else:
+            records, _ = collect_records(state.target_url, **state.crawler_kwargs)
         state.doc_records = records
         log(f"Adaptive: crawler produced {len(records)} records")
     except KeyboardInterrupt:
@@ -21,8 +24,22 @@ def _phase_crawler_fallback(state: AgentState, log: Callable[[str], None]) -> No
     state.phase = CrawlerPhase.EVALUATE_QUALITY
 
 
+def _collect_records_for_seed_urls(
+    seed_urls: list[str],
+    log: Callable[[str], None],
+    **crawler_kwargs: Any,
+) -> list[DocPageRecord]:
+    records: list[DocPageRecord] = []
+    for seed_url in seed_urls:
+        log(f"Adaptive: crawling sitemap seed {seed_url}...")
+        seed_records, _ = collect_records(seed_url, **crawler_kwargs)
+        records.extend(seed_records)
+    return records
+
+
 def _phase_evaluate_quality(state: AgentState, log: Callable[[str], None]) -> None:
     state.eval_metrics = _evaluate_quality(state.doc_records)
+    _apply_llm_judge(state, log)  # opt-in; defined in the 15_quality_judge chunk
     log(
         "Adaptive: quality — "
         f"structural={state.eval_metrics['structural']:.2f}, "
@@ -40,10 +57,11 @@ def _phase_evaluate_quality(state: AgentState, log: Callable[[str], None]) -> No
         state.phase = CrawlerPhase.DONE if state.doc_records else CrawlerPhase.FAILED
     elif state.retry_count < MAX_RETRIES:
         state.retry_count += 1
-        log(f"Adaptive: self-correcting (attempt {state.retry_count}/{MAX_RETRIES})...")
-        state.phase = CrawlerPhase.SELF_CORRECT
+        log(f"Adaptive: diagnosing failure before retry (attempt {state.retry_count}/{MAX_RETRIES})...")
+        state.phase = CrawlerPhase.FEEDBACK_ANALYSIS
     else:
-        log("Adaptive: retry budget exhausted, generating feedback report...")
+        state.retries_exhausted = True
+        log("Adaptive: retry budget exhausted, generating final feedback report...")
         state.phase = CrawlerPhase.FEEDBACK_ANALYSIS
 
 
@@ -52,17 +70,21 @@ def _phase_feedback_analysis(state: AgentState, log: Callable[[str], None]) -> N
     state.feedback_report = _generate_feedback(state, log)
     if state.feedback_report:
         _emit_feedback_report(state.feedback_report, log)
-    state.phase = CrawlerPhase.DONE if state.doc_records else CrawlerPhase.FAILED
+    if state.retries_exhausted:
+        state.phase = CrawlerPhase.DONE if state.doc_records else CrawlerPhase.FAILED
+    else:
+        state.phase = CrawlerPhase.SELF_CORRECT
 
 
 _PHASE_DISPATCH: dict[CrawlerPhase, Callable[[AgentState, Callable[[str], None]], None]] = {
-    CrawlerPhase.INIT: _phase_init,
+    CrawlerPhase.INIT: lambda s, l: _phase_init(s),
     CrawlerPhase.PROBE_API: _phase_probe_api,
     CrawlerPhase.FETCH_LLMS_TXT: _phase_fetch_llms_txt,
     CrawlerPhase.FETCH_SITEMAP: _phase_fetch_sitemap,
     CrawlerPhase.CONVERT_OPENAPI: _phase_convert_openapi,
-    CrawlerPhase.GENERATE_SCRIPT: _phase_generate_script,
-    CrawlerPhase.EXECUTE_SCRIPT: _phase_execute_script,
+    # Late-bound: these handlers live in chunks that load after this one.
+    CrawlerPhase.GENERATE_SCRIPT: lambda s, l: _phase_generate_script(s, l),
+    CrawlerPhase.EXECUTE_SCRIPT: lambda s, l: _phase_execute_script(s, l),
     CrawlerPhase.CRAWLER_FALLBACK: _phase_crawler_fallback,
     CrawlerPhase.EVALUATE_QUALITY: _phase_evaluate_quality,
     CrawlerPhase.SELF_CORRECT: lambda s, l: _self_correct(s, l),

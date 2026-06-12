@@ -7,6 +7,8 @@ handlers that advance the crawl through probing, fetching, script generation, ex
 and fallback.
 """
 
+from adaptive.playbook import cached_script, domain_of, record_outcome, should_skip_detection
+
 @dataclass
 class AgentState:
     target_url: str
@@ -14,6 +16,7 @@ class AgentState:
     llm_provider: str = DEFAULT_OLLAMA_PROVIDER
     phase: CrawlerPhase = CrawlerPhase.INIT
     detection: DetectionResult | None = None
+    crawl_seed_urls: list[str] = field(default_factory=list)
     generated_code: str | None = None
     script_stdout: list[str] = field(default_factory=list)
     script_stderr: str = ""
@@ -24,6 +27,7 @@ class AgentState:
     eval_metrics: dict[str, Any] = field(default_factory=dict)
     feedback_report: dict[str, Any] | None = None
     retry_count: int = 0
+    retries_exhausted: bool = False
 
 
 def collect_records_adaptive(
@@ -53,6 +57,14 @@ def collect_records_adaptive(
     while state.phase not in _terminal:
         _run_phase(state, log)
 
+    record_outcome(
+        state,
+        succeeded=(
+            state.phase == CrawlerPhase.DONE
+            and bool(state.doc_records)
+            and bool(state.eval_metrics.get("passed"))
+        ),
+    )
     required_depth = max((r.get("depth") or 0) for r in state.doc_records) if state.doc_records else 0
     stats = PipelineStats(
         pages=len(state.doc_records),
@@ -68,13 +80,19 @@ def collect_records_adaptive(
 # Phase handler functions (one per CrawlerPhase)
 # ---------------------------------------------------------------------------
 
-def _phase_init(state: AgentState, log: Callable[[str], None]) -> None:
+def _phase_init(state: AgentState) -> None:
     state.phase = CrawlerPhase.PROBE_API
 
 
 def _phase_probe_api(state: AgentState, log: Callable[[str], None]) -> None:
     log("Adaptive: probing for documentation API endpoints...")
     state.detection = _probe_for_api(state.target_url)
+    if state.detection and should_skip_detection(domain_of(state.target_url), state.detection.type.value):
+        log(
+            f"Adaptive: playbook: {state.detection.type.value} repeatedly failed for this "
+            "domain while the standard crawler succeeded — skipping straight to crawler"
+        )
+        state.detection = None
     if state.detection:
         desc = state.detection.framework or state.detection.type.value
         log(f"Adaptive: detected {desc} at {state.detection.url}")
@@ -107,25 +125,5 @@ def _phase_convert_openapi(state: AgentState, log: Callable[[str], None]) -> Non
     _handle_convert_openapi(state, log)
 
 
-def _phase_generate_script(state: AgentState, log: Callable[[str], None]) -> None:
-    log(f"Adaptive: generating fetch script via {state.llm_provider}...")
-    code, err = _generate_fetch_script(state, log)
-    if err:
-        log(f"Adaptive: script generation failed ({err}), falling back to crawler")
-        state.phase = CrawlerPhase.CRAWLER_FALLBACK
-    else:
-        state.generated_code = code
-        state.phase = CrawlerPhase.EXECUTE_SCRIPT
-
-
-def _phase_execute_script(state: AgentState, log: Callable[[str], None]) -> None:
-    log("Adaptive: executing fetch script...")
-    lines, stderr, returncode = _execute_script(state.generated_code or "")
-    state.script_stdout = lines
-    state.script_stderr = stderr
-    state.script_returncode = returncode
-    if returncode != 0:
-        log(f"Adaptive: script exited with code {returncode}")
-    state.doc_records = _convert_script_output(lines)
-    log(f"Adaptive: script produced {len(state.doc_records)} records")
-    state.phase = CrawlerPhase.EVALUATE_QUALITY
+# The script-pipeline phase handlers (_phase_generate_script / _phase_execute_script)
+# live in the ``16_script_phases`` chunk together with their playbook reuse logic.

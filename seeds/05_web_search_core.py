@@ -2,8 +2,9 @@
 
 """Web-search provider routing for seed discovery.
 
-Routes seed-search requests through Ollama cloud search or configured external providers,
-and implements query construction plus SearXNG/Brave adapters.
+Routes seed-search requests through Ollama cloud search or a configured external provider,
+and implements query construction plus provider resolution. The external HTTP adapters
+themselves (TinyFish/SearXNG/Brave) live in the companion ``web_search_adapters`` chunk.
 """
 
 def _ollama_web_search_seed_urls(
@@ -19,7 +20,7 @@ def _ollama_web_search_seed_urls(
         data=body,
         headers={
             "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
+            "Content-Type": JSON_CONTENT_TYPE,
         },
         method="POST",
     )
@@ -51,12 +52,16 @@ def _external_web_search_seed_urls(
 ) -> set[str]:
     provider = _resolve_external_web_search_provider()
     query = _build_web_search_query(start_url, start_parsed)
+    if provider == "tinyfish":
+        return _tinyfish_web_search_seed_urls(start_url, start_parsed, max_candidates)
     if provider == "searxng":
         return _searxng_web_search_seed_urls(query, start_parsed, max_candidates)
     if provider == "brave":
         return _brave_web_search_seed_urls(query, start_parsed, max_candidates)
     if provider == "tavily":
         return _tavily_web_search_seed_urls(query, start_parsed, max_candidates)
+    if provider == "duckduckgo":
+        return _duckduckgo_web_search_seed_urls(query, start_parsed, max_candidates)
     return set()
 
 
@@ -71,58 +76,18 @@ def _resolve_external_web_search_provider() -> str | None:
     requested = (os.environ.get("DOC_INGESTOR_WEB_SEARCH_PROVIDER") or DEFAULT_WEB_SEARCH_PROVIDER).strip().lower()
     if requested in {"disabled", "none", "off"}:
         return None
-    if requested in {"searxng", "brave", "tavily"}:
+    if requested == "ddg":
+        return "duckduckgo"
+    if requested in {"tinyfish", "searxng", "brave", "tavily", "duckduckgo"}:
         return requested
 
+    if os.environ.get("TINYFISH_API_KEY", "").strip():
+        return "tinyfish"
     if os.environ.get("SEARXNG_BASE_URL", "").strip():
         return "searxng"
     if os.environ.get("BRAVE_SEARCH_API_KEY", "").strip():
         return "brave"
     if os.environ.get("TAVILY_API_KEY", "").strip():
         return "tavily"
-    return None
-
-
-def _searxng_web_search_seed_urls(query: str, start_parsed: ParseResult, max_candidates: int) -> set[str]:
-    base_url = os.environ.get("SEARXNG_BASE_URL", "").strip().rstrip("/")
-    if not base_url:
-        return set()
-
-    endpoint = (
-        base_url
-        if base_url.lower().endswith(SEARXNG_SEARCH_URL_SUFFIX)
-        else f"{base_url}{SEARXNG_SEARCH_URL_SUFFIX}"
-    )
-    params = urlencode({"q": query, "format": "json"})
-    request = Request(
-        f"{endpoint}?{params}",
-        headers={"User-Agent": DEFAULT_USER_AGENT, "Accept": "application/json"},
-        method="GET",
-    )
-    payload = _load_json_response(request)
-    if payload is None:
-        return set()
-    extracted = _extract_urls_from_json(payload)
-    return _normalize_search_urls(extracted, start_parsed, max_candidates)
-
-
-def _brave_web_search_seed_urls(query: str, start_parsed: ParseResult, max_candidates: int) -> set[str]:
-    api_key = os.environ.get("BRAVE_SEARCH_API_KEY", "").strip()
-    if not api_key:
-        return set()
-
-    params = urlencode({"q": query, "count": max(5, max_candidates)})
-    request = Request(
-        f"https://api.search.brave.com/res/v1/web/search?{params}",
-        headers={
-            "Accept": "application/json",
-            "User-Agent": DEFAULT_USER_AGENT,
-            "X-Subscription-Token": api_key,
-        },
-        method="GET",
-    )
-    payload = _load_json_response(request)
-    if payload is None:
-        return set()
-    extracted = _extract_urls_from_json(payload)
-    return _normalize_search_urls(extracted, start_parsed, max_candidates)
+    # DuckDuckGo needs no API key, so `auto` always has a working provider.
+    return "duckduckgo"

@@ -1,9 +1,9 @@
 
 
-"""Sitemap fetching plus shared Markdown section helpers.
+"""Sitemap fetching plus the shared Markdown section splitter.
 
-Completes llms.txt section cleanup, then fetches sitemap indexes/documents and turns their
-references into a bounded URL queue for adaptive collection.
+Fetches sitemap indexes/documents and turns their references into a bounded URL queue
+for adaptive collection. (The llms.txt title/slug helpers live in ``06_llms_parse``.)
 """
 
 def _split_markdown_at_heading(content: str, level: int) -> list[str]:
@@ -23,19 +23,6 @@ def _split_markdown_at_heading(content: str, level: int) -> list[str]:
     return sections
 
 
-def _clean_llms_title(title: str) -> str:
-    title = html.unescape(title).strip()
-    title = re.sub(r"^\s{0,3}#{1,6}\s+", "", title).strip()
-    return title or "Untitled"
-
-
-def _unique_slug(title: str, seen_slugs: dict[str, int]) -> str:
-    base = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-") or "section"
-    count = seen_slugs.get(base, 0)
-    seen_slugs[base] = count + 1
-    return base if count == 0 else f"{base}-{count + 1}"
-
-
 # ---------------------------------------------------------------------------
 # Deterministic handler: sitemap.xml
 # ---------------------------------------------------------------------------
@@ -51,19 +38,56 @@ def _handle_fetch_sitemap(state: AgentState, log: Callable[[str], None]) -> None
         log("Adaptive: sitemap contained no usable URLs, falling back to crawler")
         state.phase = CrawlerPhase.CRAWLER_FALLBACK
         return
-    # If the user passed the sitemap URL itself as the start URL, that URL is
-    # not a useful BFS entry point (XML, no outbound doc links). Rewrite
-    # target_url to the first discovered sitemap entry so any later crawler
-    # fallback can BFS from a real documentation page.
     if _is_sitemap_file_url(state.target_url):
-        log(f"Adaptive: start URL is a sitemap file, using {urls[0]} as crawl entry point")
-        state.target_url = urls[0]
+        state.crawl_seed_urls = urls
+        if len(urls) == 1:
+            log(f"Adaptive: start URL is a sitemap file, using {urls[0]} as crawl entry point")
+            state.target_url = urls[0]
+        else:
+            log(f"Adaptive: start URL is a sitemap file, keeping {len(urls)} crawl seeds from sitemap")
+        state.detection = None
+        state.doc_records = []
+        state.phase = CrawlerPhase.CRAWLER_FALLBACK
+        return
+    if _sitemap_urls_look_like_version_roots(urls, state.target_url):
+        if len(urls) == 1:
+            log(f"Adaptive: sitemap only exposed a seed page, using {urls[0]} as crawl entry point")
+            state.target_url = urls[0]
+        else:
+            log(f"Adaptive: sitemap exposed {len(urls)} version roots, crawling them separately")
+        state.crawl_seed_urls = urls
+        state.detection = None
+        state.doc_records = []
+        state.phase = CrawlerPhase.CRAWLER_FALLBACK
+        return
     log(f"Adaptive: sitemap yielded {len(urls)} URLs, fetching...")
     workers = state.crawler_kwargs.get("max_workers", 4)
     include_sparse = state.crawler_kwargs.get("include_sparse_pages", False)
     state.doc_records = _fetch_url_list(urls, max_workers=workers, log=log, include_sparse_pages=include_sparse)
     log(f"Adaptive: fetched {len(state.doc_records)} records from sitemap")
     state.phase = CrawlerPhase.EVALUATE_QUALITY
+
+
+def _sitemap_urls_look_like_version_roots(urls: list[str], target_url: str) -> bool:
+    if not urls:
+        return False
+    parsed_target = urlparse(target_url)
+    target_parts = [part for part in (parsed_target.path or "/").split("/") if part]
+    if len(target_parts) < 2:
+        return False
+
+    expected_depth = len(target_parts)
+    target_root = target_parts[0]
+    for url in urls:
+        parsed_seed = urlparse(url)
+        if parsed_seed.netloc.lower() != parsed_target.netloc.lower():
+            return False
+        if not parsed_seed.path.endswith("/"):
+            return False
+        seed_parts = [part for part in parsed_seed.path.split("/") if part]
+        if len(seed_parts) != expected_depth or seed_parts[0] != target_root:
+            return False
+    return True
 
 
 def _collect_sitemap_refs(root: ET.Element, ns_prefix: str, queue: list[str]) -> None:

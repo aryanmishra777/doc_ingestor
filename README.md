@@ -167,10 +167,17 @@ Gemini mode uses native Google Search grounding when `--seed-llm-web-search` is 
 
 For local web search, set `DOC_INGESTOR_WEB_SEARCH_PROVIDER` to one of:
 
+- `duckduckgo` (or `ddg`) — no API key required
+- `tinyfish` with `TINYFISH_API_KEY`
 - `searxng` with `SEARXNG_BASE_URL`
 - `brave` with `BRAVE_SEARCH_API_KEY`
 - `tavily` with `TAVILY_API_KEY`
 - `auto` to auto-detect one of the above from your environment
+
+If `TINYFISH_API_KEY` is present, auto-detection prefers TinyFish Search first. When no
+search API key is configured at all, `auto` falls back to DuckDuckGo — so a local model
+such as `gemma4:latest` gets web search out of the box (you can simply comment out
+`TINYFISH_API_KEY` in `.env`).
 
 If your local model is slow or gets stuck during seed analysis, you can cap the seed LLM call duration:
 
@@ -185,6 +192,12 @@ Example with local Ollama plus SearXNG:
 ```env
 DOC_INGESTOR_WEB_SEARCH_PROVIDER=searxng
 SEARXNG_BASE_URL=http://localhost:8080
+```
+
+Example with TinyFish Search:
+
+```env
+TINYFISH_API_KEY=your_tinyfish_api_key
 ```
 
 Then run:
@@ -215,11 +228,36 @@ If any endpoint is found, a LangChain script-generation agent generates a target
 - **Density score** — average word count per page normalised to 1500 words (threshold: >15%)
 - **Scope score** — record count relative to a minimum of 5 pages (threshold: ≥100%)
 
-If quality checks fail, the agent self-corrects up to 3 times:
-- Script path: rewrites the fetch script with the error trace appended as context
-- Crawler path: retries with `include_sparse_pages=True`, then with no depth limit
+If quality checks fail, the agent self-corrects up to 3 times — **diagnosing before each
+retry**: the feedback-analysis agent inspects the execution trace, quality metrics, and a
+sample of the actual page HTML, then returns a failure mode (`SELECTOR_MISMATCH`,
+`PAGINATION_FAILURE`, `RATE_LIMITED`, `EMPTY_CONTENT`, `SYNTAX_ERROR`, `JS_NOT_RENDERED`,
+`ANTIBOT`, `AUTH_REQUIRED`, or `INFINITE_SCROLL`). The diagnosis is validated against a
+closed schema and picks the corrective action from a fixed whitelist — for example
+`RATE_LIMITED` drops to a single worker, `JS_NOT_RENDERED` steers the script toward the
+framework's data endpoints, `SELECTOR_MISMATCH` feeds the suggested fix into script
+regeneration. When no LLM is available (or the report is rejected), the original
+deterministic retry ladder applies: script path rewrites with the error trace; crawler
+path retries with `include_sparse_pages=True`, then with no depth limit.
 
-If retries are exhausted, a LangChain feedback-analysis agent emits a report to stderr explaining the failure mode (`SELECTOR_MISMATCH`, `PAGINATION_FAILURE`, `RATE_LIMITED`, `EMPTY_CONTENT`, or `SYNTAX_ERROR`), whether a permanent fix is recommended, and what the immediate fix would be.
+If retries are exhausted, the final feedback report is emitted to stderr with the failure
+mode, confidence, whether a permanent fix is recommended, and the immediate fix.
+
+**Cross-run playbook memory.** Every adaptive run appends an outcome entry (domain,
+strategy, quality, failure mode, and the generated script when it worked) to
+`~/.doc_ingestor/playbook.jsonl`. Later runs reuse a fetch script that already succeeded
+for the same domain and skip detection strategies that repeatedly failed where the plain
+crawler succeeded. Set `DOC_INGESTOR_PLAYBOOK` to a custom path, or to `0` to disable.
+
+**LLM-judge spot check (opt-in).** Word counts cannot tell clean documentation from long
+navigation boilerplate. With `DOC_INGESTOR_LLM_JUDGE=1`, runs that pass the deterministic
+checks are additionally spot-checked: up to three sampled records are classified
+CLEAN/JUNK by the configured model, and a majority-junk verdict demotes the pass so
+self-correction still runs.
+
+**Sandboxed script execution.** Generated fetch scripts run in a subprocess with a 120 s
+timeout and an environment scrubbed of anything secret-shaped (`*API_KEY*`, `*TOKEN*`,
+`*SECRET*`, `*PASSWORD*`, `*CREDENTIAL*`) — LLM-generated code never sees your keys.
 
 ```bash
 python cli.py https://developer.mozilla.org/en-US/docs/Web/JavaScript \

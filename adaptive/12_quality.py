@@ -71,54 +71,5 @@ def _is_unproductive_crawler_retry(state: AgentState) -> bool:
     )
 
 
-# ---------------------------------------------------------------------------
-# Self-correction
-# ---------------------------------------------------------------------------
-
-def _self_correct(state: AgentState, log: Callable[[str], None]) -> None:
-    is_script_path = (
-        state.detection is not None
-        and state.detection.type == DetectionType.FRAMEWORK
-    )
-    if is_script_path:
-        context_parts: list[str] = []
-        if state.script_returncode not in (None, 0):
-            context_parts.append(f"Exit code: {state.script_returncode}")
-        if state.script_stderr:
-            trimmed = "\n".join(state.script_stderr.splitlines()[-20:])
-            context_parts.append(f"Stderr (last 20 lines):\n{trimmed}")
-        m = state.eval_metrics
-        context_parts.append(
-            f"Quality: structural={m.get('structural', 0):.2f}, "
-            f"density={m.get('density', 0):.2f}, "
-            f"scope={m.get('scope', 0):.2f}"
-        )
-        new_context = "\n".join(context_parts)
-        state.generation_context = (
-            f"{state.generation_context}\n\n--- Retry {state.retry_count} ---\n{new_context}"
-            if state.generation_context
-            else new_context
-        )
-        log("Adaptive: rewriting script with accumulated error context...")
-        state.phase = CrawlerPhase.GENERATE_SCRIPT
-    elif state.detection is not None and state.detection.type == DetectionType.SITEMAP:
-        log("Adaptive: sitemap produced low-quality metrics, falling back to crawler...")
-        state.detection = None
-        state.doc_records = []
-        state.phase = CrawlerPhase.CRAWLER_FALLBACK
-    elif state.detection is not None:
-        # Structured source (sitemap/llms.txt/openapi) was found — accept results as-is
-        # rather than falling back to BFS, which would re-crawl the same site differently.
-        log("Adaptive: structured source produced low-quality metrics, accepting results as-is...")
-        state.phase = CrawlerPhase.DONE
-    else:
-        # No structured endpoint found — BFS is the only option; tune its parameters.
-        if not state.crawler_kwargs.get("include_sparse_pages"):
-            state.crawler_kwargs["include_sparse_pages"] = True
-            log("Adaptive: retrying crawler with include_sparse_pages=True...")
-        elif state.crawler_kwargs.get("max_depth") is not None:
-            state.crawler_kwargs["max_depth"] = None
-            log("Adaptive: retrying crawler with no depth limit...")
-        else:
-            log("Adaptive: no further crawler adjustments available, retrying as-is...")
-        state.phase = CrawlerPhase.CRAWLER_FALLBACK
+# Self-correction lives in the ``14_self_correction`` chunk: it consumes these metrics
+# plus the validated feedback report to pick the next corrective action.

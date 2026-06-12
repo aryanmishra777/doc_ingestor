@@ -63,6 +63,19 @@ def _extract_content(response: Any) -> str:
 # Script execution
 # ---------------------------------------------------------------------------
 
+def _scrubbed_env() -> dict[str, str]:
+    """Environment for generated scripts: inherited, minus anything secret-shaped.
+
+    The script source comes from an LLM; it must never see the operator's API keys.
+    """
+    secret_markers = ("API_KEY", "APIKEY", "SECRET", "TOKEN", "PASSWORD", "CREDENTIAL")
+    return {
+        key: value
+        for key, value in os.environ.items()
+        if not any(marker in key.upper() for marker in secret_markers)
+    }
+
+
 def _execute_script(code: str) -> tuple[list[str], str, int]:
     with tempfile.NamedTemporaryFile(
         mode="w", suffix=".py", delete=False, encoding="utf-8"
@@ -75,6 +88,7 @@ def _execute_script(code: str) -> tuple[list[str], str, int]:
             capture_output=True,
             text=True,
             timeout=120,
+            env=_scrubbed_env(),
         )
         stdout_lines = [ln for ln in result.stdout.splitlines() if ln.strip()]
         return stdout_lines, result.stderr, result.returncode

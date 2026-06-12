@@ -1,3 +1,33 @@
+[project]
+name = "doc-ingestor"
+version = "0.1.0"
+description = "Self-hosted crawler that turns documentation websites and linked PDFs into clean, chunked Markdown"
+requires-python = ">=3.11"
+dependencies = [
+    "playwright>=1.58",
+    "requests>=2.32",
+    "beautifulsoup4>=4.12",
+    "trafilatura>=2.0",
+]
+
+# Install remains requirements.txt-based (the repo root is itself the package);
+# these groups document which extras enable which feature set.
+[project.optional-dependencies]
+pdf = ["pymupdf>=1.27"]
+markdown = ["markdown-it-py>=3.0"]
+llm = ["ollama>=0.6"]
+agents = [
+    "langchain",
+    "langchain-ollama",
+    "langchain-huggingface",
+    "langchain-community",
+]
+
+[tool.pytest.ini_options]
+# Script-style regression_*.py files are run via tests/test_scripts.py, not collected.
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+
 [tool.ruff]
 line-length = 120
 exclude = [

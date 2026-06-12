@@ -7,9 +7,13 @@ also insert this path themselves; doing it here too makes ``pytest`` collection 
 """
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
 _ROOT = str(Path(__file__).resolve().parent)
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
+
+# Tests must never read or write the user's cross-run playbook memory.
+os.environ.setdefault("DOC_INGESTOR_PLAYBOOK", "0")
