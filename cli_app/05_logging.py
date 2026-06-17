@@ -51,8 +51,8 @@ def log_runtime_config(
         )
     if seed_llm_enabled and seed_provider == "local" and seed_web_search:
         print(
-            "Config note: local seed discovery will use an external web search provider when configured "
-            "(DOC_INGESTOR_WEB_SEARCH_PROVIDER with SearXNG, Brave, or Tavily settings).",
+            "Config note: local seed discovery uses DuckDuckGo web search by default (no API key needed); "
+            "set DOC_INGESTOR_WEB_SEARCH_PROVIDER to use SearXNG, Brave, Tavily, or TinyFish instead.",
             file=sys.stderr,
         )
     if seed_llm_enabled and seed_provider == "gemini" and seed_web_search:

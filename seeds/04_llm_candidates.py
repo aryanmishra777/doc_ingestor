@@ -75,6 +75,8 @@ def _llm_seed_candidates(
                 use_web_search=native_web_search,
             )
             if not analysis_text:
+                if web_search_urls:
+                    return set(web_search_urls), "web-search-only-llm-timeout"
                 return set(), "llm-analysis-timeout-or-empty"
 
             extraction_text = _llm_extract_seed_text(
@@ -85,6 +87,8 @@ def _llm_seed_candidates(
                 use_web_search=native_web_search,
             )
             if not extraction_text:
+                if web_search_urls:
+                    return set(web_search_urls), "web-search-only-llm-timeout"
                 return set(), "llm-extraction-timeout-or-empty"
 
             suggested_urls = _parse_urls_from_llm(extraction_text)

@@ -64,7 +64,11 @@ def _duckduckgo_web_search_seed_urls(query: str, start_parsed: ParseResult, max_
     params = urlencode({"q": query})
     request = Request(
         f"{DUCKDUCKGO_SEARCH_URL}?{params}",
-        headers={"User-Agent": DEFAULT_USER_AGENT, "Accept": "text/html"},
+        headers={
+            "User-Agent": BROWSER_USER_AGENT,
+            "Accept": "text/html",
+            "Accept-Language": "en-US,en;q=0.9",
+        },
         method="GET",
     )
     try:

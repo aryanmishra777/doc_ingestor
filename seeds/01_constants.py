@@ -84,6 +84,12 @@ MAX_CONTEXT_SCRIPT_URLS = 30
 MAX_INTERACTION_CLICKS = 3
 NO_CONTEXT_VALUE = "(none)"
 DEFAULT_USER_AGENT = "doc-ingestor/1.0"
+# DuckDuckGo's HTML endpoint answers non-browser agents with a 202 "anomaly"
+# challenge page instead of results, so its adapter must present a browser UA.
+BROWSER_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+)
 SEED_DISCOVERY_HEARTBEAT_SECONDS = 20.0
 DOC_LABEL_HINTS_PATTERN = (
     r"docs?|documentation|api|reference|guide|tutorial|learn|menu|nav|sidebar|module|namespace"
