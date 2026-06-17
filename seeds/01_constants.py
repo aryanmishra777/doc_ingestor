@@ -13,7 +13,7 @@ import sys
 import threading
 import time
 from html import unescape
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 from dataclasses import dataclass
 from urllib.error import HTTPError, URLError

@@ -20,9 +20,15 @@ class PageSeedContext:
 
 
 class _HeartbeatLogger:
-    def __init__(self, label: str, interval_seconds: float = SEED_DISCOVERY_HEARTBEAT_SECONDS):
+    def __init__(
+        self,
+        label: str,
+        interval_seconds: float = SEED_DISCOVERY_HEARTBEAT_SECONDS,
+        status_fn: Callable[[], str] | None = None,
+    ):
         self._label = label
         self._interval_seconds = max(5.0, interval_seconds)
+        self._status_fn = status_fn
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
         self._start_time = 0.0
@@ -41,10 +47,14 @@ class _HeartbeatLogger:
     def _run(self) -> None:
         while not self._stop_event.wait(self._interval_seconds):
             elapsed = int(time.monotonic() - self._start_time)
-            print(
-                f"Seed discovery: still looking for potential seeds via {self._label} ({elapsed}s elapsed)...",
-                file=sys.stderr,
-            )
+            detail = ""
+            if self._status_fn is not None:
+                try:
+                    detail = self._status_fn()
+                except Exception:
+                    detail = ""
+            body = detail or f"still looking for potential seeds via {self._label}"
+            print(f"Seed discovery: {body} ({elapsed}s elapsed)...", file=sys.stderr)
 
 
 def discover_seed_urls(

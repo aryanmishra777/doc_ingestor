@@ -46,8 +46,13 @@ def _llm_seed_candidates(
         "Analysis:\n{analysis_text}"
     )
 
+    progress = {"phase": "contacting web search"}
+
+    def _status() -> str:
+        return f"{progress['phase']} [{llm_model}]"
+
     try:
-        with _HeartbeatLogger(label="Ollama seed analysis"):
+        with _HeartbeatLogger(label="Ollama seed analysis", status_fn=_status):
             web_search_urls, native_web_search = _llm_optional_web_search(
                 use_web_search=use_web_search,
                 llm_provider=provider,
@@ -55,6 +60,10 @@ def _llm_seed_candidates(
                 start_url=start_url,
                 start_parsed=start_parsed,
                 max_candidates=max_candidates,
+            )
+            _announce_web_search_hits(web_search_urls, max_candidates)
+            progress["phase"] = (
+                f"analyzing the page with the model - {len(web_search_urls)} web seed(s) already secured"
             )
 
             analysis_prompt = _build_llm_analysis_prompt(
@@ -79,6 +88,7 @@ def _llm_seed_candidates(
                     return set(web_search_urls), "web-search-only-llm-timeout"
                 return set(), "llm-analysis-timeout-or-empty"
 
+            progress["phase"] = "extracting seed URLs from the model's analysis"
             extraction_text = _llm_extract_seed_text(
                 client=client,
                 llm_provider=provider,
@@ -104,3 +114,15 @@ def _llm_seed_candidates(
     if not normalized:
         return set(), "no-viable-llm-seeds"
     return normalized, "ok-web" if use_web_search else "ok"
+
+
+def _announce_web_search_hits(web_search_urls: set[str], max_candidates: int) -> None:
+    """Stream web-search hits to the user immediately, before the slow model call."""
+    if not web_search_urls:
+        return
+    print(
+        f"Seed discovery: web search found {len(web_search_urls)} candidate URL(s):",
+        file=sys.stderr,
+    )
+    for hit in sorted(web_search_urls)[: max(1, max_candidates)]:
+        print(f"    + {hit}", file=sys.stderr)

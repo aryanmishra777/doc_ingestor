@@ -62,15 +62,23 @@ def _extract_gemini_text(payload: object) -> str:
     return ""
 
 
-def _resolve_llm_timeout_seconds() -> float:
-    raw = os.environ.get("DOC_INGESTOR_LLM_TIMEOUT_SECONDS", "").strip()
+def _resolve_llm_timeout_seconds() -> float | None:
+    """Resolve the seed LLM timeout. ``None`` means wait with no cap.
+
+    ``off``/``none``/``disabled``/``never``/``unlimited`` (or a non-positive number)
+    disable the timeout entirely, so a slow local model can finish if you'd rather
+    watch the live progress screen than fall back early.
+    """
+    raw = os.environ.get("DOC_INGESTOR_LLM_TIMEOUT_SECONDS", "").strip().lower()
     if not raw:
         return DEFAULT_LLM_TIMEOUT_SECONDS
+    if raw in {"off", "none", "disabled", "never", "unlimited"}:
+        return None
     try:
         value = float(raw)
     except ValueError:
         return DEFAULT_LLM_TIMEOUT_SECONDS
-    return max(5.0, value)
+    return None if value <= 0 else max(5.0, value)
 
 
 def _extract_urls_from_json(payload: object) -> set[str]:

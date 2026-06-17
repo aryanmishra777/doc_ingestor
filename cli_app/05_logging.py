@@ -63,7 +63,8 @@ def log_runtime_config(
     if seed_llm_enabled:
         print(
             "Config note: set DOC_INGESTOR_LLM_TIMEOUT_SECONDS to cap how long seed LLM calls may run "
-            "before falling back to heuristic seeds.",
+            "before falling back to heuristic seeds, or 'off' to wait with no cap (the live "
+            "progress screen shows web-search hits and the current phase while it works).",
             file=sys.stderr,
         )
 

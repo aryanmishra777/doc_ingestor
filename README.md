@@ -187,6 +187,17 @@ DOC_INGESTOR_LLM_TIMEOUT_SECONDS=90
 
 When the timeout is hit, `doc_ingestor` logs the timeout and falls back to heuristic seed discovery instead of waiting indefinitely.
 
+Prefer to wait for a slow local model rather than fall back early? Disable the cap with
+`off` (also accepts `none`/`never`/`0`):
+
+```env
+DOC_INGESTOR_LLM_TIMEOUT_SECONDS=off
+```
+
+With no cap, the live progress screen keeps you informed — it streams the web-search hits
+as soon as they arrive and shows the current phase (web search → model analysis → URL
+extraction) next to the elapsed time, so you can see it is still working.
+
 Example with local Ollama plus SearXNG:
 
 ```env
