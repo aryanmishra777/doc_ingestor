@@ -28,15 +28,24 @@ def _extract_gemini_content(payload: Any) -> str:
     return ""
 
 
-def _resolve_llm_timeout_seconds() -> float:
-    raw = os.environ.get("DOC_INGESTOR_LLM_TIMEOUT_SECONDS", "").strip()
+def _resolve_llm_timeout_seconds() -> float | None:
+    """Resolve the adaptive LLM timeout. ``None`` means wait with no cap.
+
+    ``off``/``none``/``disabled``/``never``/``unlimited`` (or a non-positive number)
+    disable the timeout, matching the seed-discovery resolver so a single env var
+    governs both. Only the Gemini ``requests.post`` call consumes this; the local
+    Ollama chat is already uncapped.
+    """
+    raw = os.environ.get("DOC_INGESTOR_LLM_TIMEOUT_SECONDS", "").strip().lower()
     if not raw:
         return 90.0
+    if raw in {"off", "none", "disabled", "never", "unlimited"}:
+        return None
     try:
         value = float(raw)
     except ValueError:
         return 90.0
-    return max(5.0, value)
+    return None if value <= 0 else max(5.0, value)
 
 
 def _extract_content(response: Any) -> str:
